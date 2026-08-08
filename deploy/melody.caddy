@@ -1,0 +1,13 @@
+# Copy to ~/stack/caddy/sites-enabled/melody.caddy on the droplet, then
+#   docker compose restart caddy
+# (Caddy never hot-reloads a mounted config file.)
+#
+# The existing *.starbasehome.net access_control rule in Authelia already
+# covers this subdomain. Add a group-scoped rule if melody should be narrower
+# than "anyone who can log in".
+
+melody.starbasehome.net {
+    log
+    import authelia
+    reverse_proxy melody:3000
+}

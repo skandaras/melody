@@ -1,0 +1,37 @@
+# Melody — single instance following :stable.
+#
+# Only one app container runs, unlike galaxy's dev/prod pair: the droplet has
+# 2GB and galaxy already occupies two Node processes. The promotion gate still
+# exists — CI publishes :dev, the promote workflow retags it to :stable, and
+# this service pulls :stable. To add a dev instance later, copy the melody
+# block, point it at :dev, and give it its own volume.
+
+services:
+  melody:
+    image: ghcr.io/skandaras/melody:stable
+    restart: unless-stopped
+    environment:
+      MELODY_ENV: prod
+      AUTH_MODE: authelia
+      # The app refuses forwarded identity headers from anywhere else. Without
+      # this, anyone who can reach the container can claim to be any user.
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?set to your reverse proxy IP/CIDR}
+      ADMIN_GROUP: melody-admins
+      # SvelteKit's CSRF check rejects multipart uploads without this, which is
+      # how audio files arrive.
+      ORIGIN: ${MELODY_ORIGIN:?set to https://melody.starbasehome.net}
+      BODY_SIZE_LIMIT: 64M
+    volumes:
+      - melody-data:/data
+    networks:
+      - proxy
+
+networks:
+  # Caddy's network. Created outside this file; the reverse proxy reaches
+  # melody by service name over it. Note this is `proxy`, not `shared_net` —
+  # galaxy uses the same one.
+  proxy:
+    external: true
+
+volumes:
+  melody-data:

@@ -1,0 +1,45 @@
+name: Promote
+
+# Retag only — no build. :stable is what the deployed container follows, so
+# promotion is "point stable at the dev image that already passed CI", and
+# rollback is "point it back at the previous one".
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Promote dev to stable, or roll stable back
+        required: true
+        default: promote
+        type: choice
+        options: [promote, rollback]
+
+permissions:
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote dev to stable
+        if: inputs.action == 'promote'
+        run: |
+          # Keep the outgoing stable so rollback has somewhere to go. Absent on
+          # the very first promote, hence the guard.
+          if docker buildx imagetools inspect "$IMAGE:stable" > /dev/null 2>&1; then
+            docker buildx imagetools create -t "$IMAGE:stable-prev" "$IMAGE:stable"
+          fi
+          docker buildx imagetools create -t "$IMAGE:stable" "$IMAGE:dev"
+
+      - name: Roll stable back
+        if: inputs.action == 'rollback'
+        run: docker buildx imagetools create -t "$IMAGE:stable" "$IMAGE:stable-prev"
