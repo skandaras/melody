@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
+	import Mixer from '$lib/components/Mixer.svelte';
+	import Transport from '$lib/components/Transport.svelte';
+	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { analyse } from '$lib/score/analyse';
-	import { resolveSelection } from '$lib/score/query';
 	import type { Op } from '$lib/score/apply';
 	import type { Score, Selection } from '$lib/score/types';
 	import type { PageServerData } from './$types';
@@ -39,6 +41,20 @@
 		selected = new Set();
 		pendingDiff = null;
 		error = '';
+	});
+
+	// One synth per editor page, shared by the transport and the mixer: the
+	// AudioContext, the worklet and the soundfont are far too expensive to hold
+	// per component. Constructed eagerly rather than inside an effect — nothing
+	// here touches an AudioContext until the first play, so it is safe during
+	// SSR, and the mixer is the parts panel, which should render server-side.
+	const player = new PlayerStore(() => data.soundfontUrl);
+	$effect(() => () => player.destroy());
+
+	$effect(() => {
+		// Any edit makes the loaded sequence stale.
+		void score;
+		player.invalidate();
 	});
 
 	const summary = $derived(analyse(score));
@@ -118,6 +134,13 @@
 		);
 	}
 
+	async function removePart(partId: string) {
+		const part = score.parts.find((p) => p.id === partId);
+		if (!part) return;
+		if (!confirm(`Remove "${part.name}" and its notes?`)) return;
+		await runOps([{ op: 'remove_part', args: { partId } }], `Removed ${part.name}`);
+	}
+
 	async function deleteSelected() {
 		if (!selected.size) return;
 		await runOps([{ op: 'delete_notes', args: { noteIds: [...selected] } }], 'Deleted notes');
@@ -166,21 +189,8 @@
 		<input class="title" bind:value={title} onblur={saveTitle} aria-label="Score title" />
 
 		<section>
-			<h2>Parts</h2>
-			{#if score.parts.length === 0}
-				<p class="hint">No parts yet.</p>
-			{:else}
-				<ul class="parts">
-					{#each score.parts as part (part.id)}
-						<li>
-							<span class="pname">{part.name}</span>
-							<span class="pmeta">
-								{resolveSelection(score, { partIds: [part.id] }).length} notes
-							</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+			<h2>Parts &amp; mix</h2>
+			<Mixer {score} {player} {busy} oncommit={runOps} onremove={removePart} />
 			<button class="btn" onclick={addPart} disabled={busy}>Add part</button>
 		</section>
 
@@ -237,6 +247,8 @@
 		<div class="scroll">
 			<ScoreCanvas {score} {selected} {scale} diff={pendingDiff} {onselect} />
 		</div>
+
+		<Transport {score} {player} soundfontUrl={data.soundfontUrl} />
 	</main>
 
 	<aside class="right">
@@ -321,25 +333,6 @@
 		font-size: var(--text-xs);
 		margin: 0 0 var(--space-2);
 		line-height: 1.45;
-	}
-
-	.parts {
-		list-style: none;
-		margin: 0 0 var(--space-2);
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-	.parts li {
-		display: flex;
-		justify-content: space-between;
-		gap: var(--space-2);
-		font-size: var(--text-sm);
-	}
-	.pmeta {
-		color: var(--fg-dim);
-		font-size: var(--text-xs);
 	}
 
 	.facts {

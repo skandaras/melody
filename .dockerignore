@@ -9,3 +9,9 @@ data
 PLAN.md
 README.md
 docs
+
+# Generated into static/ by scripts/setup-assets.mjs. Regenerated inside the
+# build from node_modules, so shipping ~43MB in the build context is waste.
+static/spessasynth_processor.min.js
+static/basic-pitch-model
+static/soundfonts

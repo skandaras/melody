@@ -5,9 +5,17 @@ FROM node:22-alpine AS build
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
+# scripts/ comes before the install because postinstall runs setup-assets.mjs.
+# Installing with --ignore-scripts instead is not an option: better-sqlite3
+# needs its install script to fetch or compile the native binary.
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
 RUN npm ci
 COPY . .
+# setup-assets runs again inside `npm run build` — it is idempotent, and this
+# is what puts the soundfont in static/ before vite copies it into build/.
+# The prune then drops the 58MB soundfont *package* from the runtime image
+# while the one file we copied stays in the build output.
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
