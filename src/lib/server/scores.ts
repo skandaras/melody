@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { error } from '@sveltejs/kit';
 import { applyOps, type Op } from '$lib/score/apply';
+import { mergeParts } from '$lib/score/merge';
 import { emptyScore, type Score } from '$lib/score/types';
 import { coerceScore } from '$lib/score/validate';
 import { db } from './db/index.js';
@@ -224,6 +225,52 @@ export function replaceScore(
 		.run();
 	const revisionId = writeRevision(scoreId, { source, label, score: clean, accepted: true });
 	return { score: clean, revisionId, diff: { added: [], removed: [], changed: [] }, log: [label], errors: [] };
+}
+
+/**
+ * Graft a transcribed (or imported) fragment onto a score as new parts.
+ *
+ * Staged unaccepted, like an AI edit, so the existing review UI handles it:
+ * pitch detection on a hummed melody is a draft by nature, and being able to
+ * reject the whole thing in one click is more useful than deleting fifty
+ * wrong notes by hand.
+ */
+export function mergeIntoScore(
+	scoreId: string,
+	userId: string,
+	fragment: unknown,
+	opts: { label: string; atTick?: number; adoptGlobals?: boolean } = { label: 'Transcription' }
+): CommitResult {
+	const current = loadScore(scoreId, userId);
+	// The fragment is built in the browser, so it is untrusted input like any
+	// other request body and goes through the same validator as an import.
+	const incoming = coerceScore(fragment, current.title);
+	const { score, addedIds, addedParts } = mergeParts(current.doc, incoming, {
+		atTick: opts.atTick,
+		adoptGlobals: opts.adoptGlobals
+	});
+
+	db.update(scores)
+		.set({ doc: score, updatedAt: new Date() })
+		.where(eq(scores.id, scoreId))
+		.run();
+
+	const diff = { added: addedIds, removed: [], changed: [] };
+	const revisionId = writeRevision(scoreId, {
+		source: 'import',
+		label: opts.label,
+		score,
+		diff,
+		accepted: false
+	});
+
+	return {
+		score,
+		revisionId,
+		diff,
+		log: [`${opts.label}: ${addedParts} part(s), ${addedIds.length} event(s)`],
+		errors: []
+	};
 }
 
 export function listRevisions(scoreId: string, userId: string, limit = 60) {

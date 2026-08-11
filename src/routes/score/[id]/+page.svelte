@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import AudioInput from '$lib/components/AudioInput.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -134,6 +135,27 @@
 		);
 	}
 
+	/** A transcription arrives as a whole fragment, not as ops — it carries rests
+	 *  and ties, which insert_notes cannot express. It lands staged, so the
+	 *  existing accept/reject review covers it. */
+	async function acceptTranscription(fragment: Score, label: string) {
+		busy = true;
+		error = '';
+		try {
+			const r = await post(`/api/scores/${data.score.id}/transcribe`, {
+				fragment,
+				label: `Transcribed ${label}`
+			});
+			score = r.doc;
+			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Transcribed ${label}` };
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+			throw e;
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function removePart(partId: string) {
 		const part = score.parts.find((p) => p.id === partId);
 		if (!part) return;
@@ -187,6 +209,11 @@
 <div class="editor">
 	<aside class="left">
 		<input class="title" bind:value={title} onblur={saveTitle} aria-label="Score title" />
+
+		<section>
+			<h2>Audio in</h2>
+			<AudioInput ontranscribed={acceptTranscription} disabled={busy} />
+		</section>
 
 		<section>
 			<h2>Parts &amp; mix</h2>
