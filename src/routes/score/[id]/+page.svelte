@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import AiPanel from '$lib/components/AiPanel.svelte';
 	import AudioInput from '$lib/components/AudioInput.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
@@ -279,6 +280,20 @@
 	</main>
 
 	<aside class="right">
+		<section>
+			<h2>Ask</h2>
+			<AiPanel
+				scoreId={data.score.id}
+				{selection}
+				{selectionCount}
+				{busy}
+				onresult={(r) => {
+					score = r.doc;
+					pendingDiff = { ...r.diff, revisionId: r.revisionId, label: r.label };
+				}}
+			/>
+		</section>
+
 		<h2>Controls</h2>
 		<p class="hint">
 			Deterministic controls run instantly and free. Prompt and agent controls call the model.

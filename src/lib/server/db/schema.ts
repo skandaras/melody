@@ -45,7 +45,16 @@ export const settings = sqliteTable(
 
 // ------------------------------------------------------------- AI plumbing
 
-export const PROVIDER_KINDS = ['anthropic', 'openai-compatible'] as const;
+/**
+ * OpenRouter fronts 400+ models behind one key and one OpenAI-shaped endpoint,
+ * so it is the provider rather than one vendor among several. `openai-compatible`
+ * stays for a local runtime (Ollama, llama.cpp) that speaks the same wire format
+ * without OpenRouter's extensions.
+ *
+ * These enums are TypeScript-only — Drizzle emits no CHECK constraint, so
+ * changing them costs no migration.
+ */
+export const PROVIDER_KINDS = ['openrouter', 'openai-compatible'] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 export const providers = sqliteTable('providers', {
@@ -93,15 +102,28 @@ export const CORE_TASKS = [
 ] as const;
 export type CoreTask = (typeof CORE_TASKS)[number];
 
+/** OpenRouter's reasoning levels. Note there is no `max` — the ceiling is
+ *  `xhigh`, which allocates roughly 95% of max_tokens to reasoning. */
+export const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 /**
- * Per-task knobs. Deliberately no temperature: it is rejected with a 400 on
- * Claude Opus 5 and its siblings, so exposing the field would only invite an
- * un-runnable configuration.
+ * Per-task knobs, in OpenRouter's vocabulary rather than any one vendor's.
+ *
+ * Deliberately no temperature: several current reasoning models reject it
+ * outright, so exposing the field would only invite an un-runnable
+ * configuration.
+ *
+ * `reasoning` is three-state rather than a boolean because "think but don't
+ * show me" is a genuinely different request from "don't think":
+ *   on     run reasoning and return it
+ *   hidden run reasoning, omit it from the response (exclude)
+ *   off    don't reason at all
  */
 export interface TaskOptions {
-	effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+	effort?: ReasoningEffort;
 	maxTokens?: number;
-	thinking?: 'adaptive' | 'disabled';
+	reasoning?: 'on' | 'hidden' | 'off';
 }
 
 export const taskConfigs = sqliteTable('task_configs', {

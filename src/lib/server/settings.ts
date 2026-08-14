@@ -68,6 +68,27 @@ export const DEFAULT_AI: AiSettings = {
 	useStyleSkills: true
 };
 
+/**
+ * Which model to use, and what to fall back to.
+ *
+ * A slug rather than a constant because the whole point of routing through
+ * OpenRouter is that this is a setting: swapping to a cheaper or newer model
+ * is a dropdown, not a deploy. The fallback list is tried in order when the
+ * primary is unavailable or rate-limited.
+ */
+export interface ModelSettings {
+	primary: string;
+	fallbacks: string[];
+	/** Ceiling per call. Generous, because an agent turn interleaves reasoning,
+	 *  tool calls and prose, and truncation mid-edit is worse than a big bill. */
+	maxTokens: number;
+}
+export const DEFAULT_MODELS: ModelSettings = {
+	primary: 'anthropic/claude-opus-5',
+	fallbacks: ['anthropic/claude-sonnet-5', 'openai/gpt-5'],
+	maxTokens: 16000
+};
+
 export interface BudgetSettings {
 	/** USD ceiling per period; 0 disables the cap entirely. */
 	limitUsd: number;

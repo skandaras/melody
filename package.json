@@ -16,7 +16,6 @@
 		"db:generate": "drizzle-kit generate"
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "^0.72.0",
 		"@spotify/basic-pitch": "^1.0.1",
 		"@tonejs/midi": "^2.0.28",
 		"better-sqlite3": "^12.0.0",

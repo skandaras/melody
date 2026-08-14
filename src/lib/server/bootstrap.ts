@@ -3,7 +3,14 @@ import { mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db, dataDir } from './db/index.js';
-import { CORE_TASKS, controls, styleSkills, taskConfigs, type CoreTask } from './db/schema.js';
+import {
+	CORE_TASKS,
+	controls,
+	styleSkills,
+	taskConfigs,
+	type CoreTask,
+	type TaskOptions
+} from './db/schema.js';
 import { BUILTIN_CONTROLS } from './controls/builtin.js';
 import { DEFAULT_PROMPTS } from './ai/prompts.js';
 import { SEED_SKILLS } from './controls/seed-skills.js';
@@ -12,6 +19,26 @@ import { SEED_SKILLS } from './controls/seed-skills.js';
  * First-boot seeding. Every function here is idempotent and insert-if-absent:
  * an upgrade must never overwrite a prompt or control the user has edited.
  */
+
+/**
+ * Starting effort per task, matched to how much thinking the job is worth.
+ *
+ * Naming a title or reading back an analysis is close to lookup work and gets
+ * nothing from deep reasoning; orchestration and composition are exactly where
+ * it pays. These are only defaults — every one is editable in the admin panel,
+ * and the right values are workload-specific enough that they should be tuned
+ * against real use rather than guessed once.
+ */
+const TASK_EFFORT: Record<CoreTask, TaskOptions> = {
+	title: { effort: 'minimal', reasoning: 'off', maxTokens: 200 },
+	analyse: { effort: 'low', reasoning: 'hidden' },
+	transcribe_cleanup: { effort: 'medium', reasoning: 'hidden' },
+	control_prompt: { effort: 'medium', reasoning: 'hidden' },
+	edit_selection: { effort: 'high', reasoning: 'hidden' },
+	compose_plan: { effort: 'high', reasoning: 'hidden' },
+	compose_realize: { effort: 'high', reasoning: 'hidden' },
+	orchestrate: { effort: 'high', reasoning: 'hidden' }
+};
 
 export function seedTaskConfigs(): void {
 	const existing = new Set(
@@ -23,7 +50,7 @@ export function seedTaskConfigs(): void {
 			.values({
 				task,
 				systemPrompt: DEFAULT_PROMPTS[task as CoreTask] ?? '',
-				options: { effort: 'high', thinking: 'adaptive' }
+				options: TASK_EFFORT[task] ?? { effort: 'medium', reasoning: 'hidden' }
 			})
 			.run();
 	}
