@@ -1,7 +1,7 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
 import type { Score, Selection } from '$lib/score/types.js';
 import { analysisReport, renderNotes } from './context.js';
-import { INSTRUMENT_NAMES, READ_TOOL_NAMES, agentTools } from './tools.js';
+import { INSTRUMENT_NAMES, READ_TOOL_NAMES, agentTools, type FunctionDef } from './tools.js';
 import type { ChatMessage, Completion, ProviderAdapter, ToolCall, Usage } from './types.js';
 import { emptyUsage } from './types.js';
 
@@ -30,6 +30,12 @@ export interface LoopOptions {
 	score: Score;
 	maxIterations: number;
 	maxOps: number;
+	/**
+	 * Defaults to the read tools plus every op. A prompt-tier control passes
+	 * just the ops: it gets one round trip, so a tool whose only purpose is to
+	 * inform the *next* turn would spend the whole call and change nothing.
+	 */
+	tools?: FunctionDef[];
 	maxTokens?: number;
 	effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 	reasoning?: 'on' | 'hidden' | 'off';
@@ -57,7 +63,7 @@ export interface LoopResult {
 }
 
 export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
-	const tools = agentTools();
+	const tools = opts.tools ?? agentTools();
 	const messages: ChatMessage[] = [
 		// The system prompt is the stable prefix — mark it so families that
 		// need an explicit breakpoint can cache everything up to here.
@@ -143,7 +149,11 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		if (stopReason === 'max_ops') {
 			warnings.push(`Stopped after ${opts.maxOps} operations in one turn.`);
 		}
-		if (stopReason === 'max_iterations') {
+		// A single-turn call always ends by reaching its cap — that is the
+		// contract of a prompt-tier control, not something to warn about. Only
+		// a loop that was allowed to iterate and still ran out has hit a limit
+		// worth mentioning.
+		if (stopReason === 'max_iterations' && opts.maxIterations > 1) {
 			warnings.push(`Stopped after ${opts.maxIterations} model round-trips.`);
 		}
 		return { ops, summary, iterations, usage, stopReason, warnings };

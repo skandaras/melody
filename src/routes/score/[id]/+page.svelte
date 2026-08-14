@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import AiPanel from '$lib/components/AiPanel.svelte';
 	import AudioInput from '$lib/components/AudioInput.svelte';
+	import ControlRack from '$lib/components/ControlRack.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -193,15 +194,6 @@
 		}
 	}
 
-	const byCategory = $derived.by(() => {
-		const map = new Map<string, typeof data.controls>();
-		for (const c of data.controls) {
-			const list = map.get(c.category) ?? [];
-			list.push(c);
-			map.set(c.category, list);
-		}
-		return [...map.entries()];
-	});
 </script>
 
 <svelte:head><title>{title} · melody</title></svelte:head>
@@ -295,28 +287,20 @@
 		</section>
 
 		<h2>Controls</h2>
-		<p class="hint">
-			Deterministic controls run instantly and free. Prompt and agent controls call the model.
-		</p>
-
-		{#each byCategory as [category, list] (category)}
-			<section>
-				<h3>{category}</h3>
-				<ul class="controls">
-					{#each list as control (control.id)}
-						<li>
-							<button class="control" title={control.description} disabled={busy}>
-								<span class="icon" aria-hidden="true">{control.icon ?? '·'}</span>
-								<span class="cname">{control.name}</span>
-								<span class="kind kind-{control.kind}">
-									{control.kind === 'code' ? 'free' : control.kind}
-								</span>
-							</button>
-						</li>
-					{/each}
-				</ul>
-			</section>
-		{/each}
+		<ControlRack
+			scoreId={data.score.id}
+			controls={data.controls}
+			{selection}
+			{busy}
+			onapplied={(r) => {
+				score = r.doc;
+				pendingDiff = null;
+			}}
+			onstaged={(r) => {
+				score = r.doc;
+				pendingDiff = { ...r.diff, revisionId: r.revisionId, label: r.label };
+			}}
+		/>
 	</aside>
 </div>
 
@@ -349,11 +333,6 @@
 		color: var(--fg-dim);
 		margin-bottom: var(--space-2);
 	}
-	h3 {
-		font-size: var(--text-xs);
-		color: var(--fg-dim);
-		margin-bottom: var(--space-1);
-	}
 
 	.title {
 		width: 100%;
@@ -370,12 +349,6 @@
 		outline: none;
 	}
 
-	.hint {
-		color: var(--fg-dim);
-		font-size: var(--text-xs);
-		margin: 0 0 var(--space-2);
-		line-height: 1.45;
-	}
 
 	.facts {
 		display: grid;
@@ -463,50 +436,6 @@
 		cursor: default;
 	}
 
-	.controls {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-	.control {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: none;
-		border: 1px solid transparent;
-		color: var(--fg);
-		padding: var(--space-1) var(--space-2);
-		text-align: left;
-		cursor: pointer;
-		font-size: var(--text-sm);
-	}
-	.control:hover:not(:disabled) {
-		background: var(--bg-raise);
-		border-color: var(--border);
-	}
-	.icon {
-		width: 1.2em;
-		color: var(--accent);
-		text-align: center;
-	}
-	.cname {
-		flex: 1;
-	}
-	.kind {
-		font-size: 0.62rem;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--fg-dim);
-	}
-	/* Free controls are visually distinct because that is the single most
-	   useful thing to know before clicking one. */
-	.kind-code {
-		color: var(--diff-add);
-	}
 
 	@media (max-width: 1000px) {
 		.editor {

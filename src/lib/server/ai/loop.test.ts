@@ -266,6 +266,20 @@ describe('runAgentLoop — bounds', () => {
 		expect(r.warnings.join(' ')).toContain('3 model round-trips');
 	});
 
+	it('does not call a single-turn call hitting its cap a warning', async () => {
+		// A prompt-tier control is one round trip by design, so ending at the
+		// cap is the normal path — warning about it would make every working
+		// control look like it had a problem.
+		const { promise } = run([{ toolCalls: [{ name: 'transpose', arguments: '{"semitones":2}' }] }], {
+			maxIterations: 1
+		});
+		const r = await promise;
+
+		expect(r.stopReason).toBe('max_iterations');
+		expect(r.ops).toHaveLength(1);
+		expect(r.warnings).toEqual([]);
+	});
+
 	it('stops a model that tries to rewrite the whole piece', async () => {
 		const turns: ScriptedTurn[] = Array.from({ length: 10 }, () => ({
 			toolCalls: [{ name: 'transpose', arguments: '{"semitones":1}' }]
