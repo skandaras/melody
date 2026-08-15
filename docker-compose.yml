@@ -14,7 +14,9 @@ services:
       MELODY_ENV: prod
       AUTH_MODE: authelia
       # The app refuses forwarded identity headers from anywhere else. Without
-      # this, anyone who can reach the container can claim to be any user.
+      # this, anyone who can reach the container can claim to be any user —
+      # including a member of ADMIN_GROUP. Find Caddy's subnet with:
+      #   docker network inspect proxy -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
       TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?set to your reverse proxy IP/CIDR}
       ADMIN_GROUP: melody-admins
       # SvelteKit's CSRF check rejects multipart uploads without this, which is

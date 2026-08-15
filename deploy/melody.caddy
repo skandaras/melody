@@ -3,8 +3,20 @@
 # (Caddy never hot-reloads a mounted config file.)
 #
 # The existing *.starbasehome.net access_control rule in Authelia already
-# covers this subdomain. Add a group-scoped rule if melody should be narrower
-# than "anyone who can log in".
+# covers this subdomain, so melody works with no Authelia change at all.
+#
+# To make it narrower than "anyone who can log in", add this ABOVE the
+# catch-all rule in authelia/configuration.yml — below it, it never matches:
+#
+#   - domain: melody.starbasehome.net
+#     policy: two_factor
+#     subject:
+#       - 'group:melody-users'
+#
+# That group is enforced here, by Authelia. The app itself reads only one
+# group, ADMIN_GROUP (default melody-admins), which grants /admin — the
+# OpenRouter key, model curation and defaults. Membership of both is set in
+# users_database.yml.
 
 melody.starbasehome.net {
     log
