@@ -2,7 +2,9 @@
 	import { untrack } from 'svelte';
 	import AiPanel from '$lib/components/AiPanel.svelte';
 	import AudioInput from '$lib/components/AudioInput.svelte';
+	import ClipPanel from '$lib/components/ClipPanel.svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
+	import ExportMenu from '$lib/components/ExportMenu.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -158,6 +160,26 @@
 		}
 	}
 
+	/** A clip carries rests and ties like a transcription, so it goes in through
+	 *  the same merge path rather than as ops. */
+	async function insertClip(fragment: Score, label: string) {
+		busy = true;
+		error = '';
+		try {
+			const r = await post(`/api/scores/${data.score.id}/transcribe`, {
+				fragment,
+				label: `Inserted ${label}`
+			});
+			score = r.doc;
+			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Inserted ${label}` };
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+			throw e;
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function removePart(partId: string) {
 		const part = score.parts.find((p) => p.id === partId);
 		if (!part) return;
@@ -215,6 +237,18 @@
 		</section>
 
 		<section>
+			<h2>Library</h2>
+			<ClipPanel
+				scoreId={data.score.id}
+				{score}
+				{selection}
+				{selectionCount}
+				{busy}
+				oninsert={insertClip}
+			/>
+		</section>
+
+		<section>
 			<h2>Analysis</h2>
 			<dl class="facts">
 				<dt>Key</dt>
@@ -237,6 +271,7 @@
 				{selectionCount ? `${selectionCount} selected` : 'Nothing selected — edits apply to all'}
 			</span>
 			<div class="spacer"></div>
+			<ExportMenu {score} soundfontUrl={data.soundfontUrl} />
 			<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out"
 				>−</button
 			>
