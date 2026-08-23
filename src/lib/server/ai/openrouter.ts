@@ -113,10 +113,14 @@ export class OpenRouterAdapter implements ProviderAdapter {
 	/** Build the request body. Kept separate from transport so it is testable. */
 	body(req: CompletionRequest, stream: boolean): Record<string, unknown> {
 		const explicitCache = needsCacheBreakpoints(this.config.model);
+		// The tool payload is part of the cached prefix, and on an agent turn it
+		// dwarfs the system message — so it has to count toward whether marking a
+		// breakpoint is worth it.
+		const toolBytes = req.tools?.length ? JSON.stringify(req.tools).length : 0;
 
 		const body: Record<string, unknown> = {
 			model: this.config.model,
-			messages: req.messages.map((m) => toWireMessage(m, explicitCache)),
+			messages: req.messages.map((m) => toWireMessage(m, explicitCache, toolBytes)),
 			stream,
 			// Without this the response carries no cost or cache figures, and
 			// the budget cap has nothing to enforce against.
@@ -205,10 +209,14 @@ function reasoningParam(req: CompletionRequest): Record<string, unknown> | null 
 }
 
 /** Our message shape → the wire shape, marking the cache breakpoint if asked. */
-function toWireMessage(m: ChatMessage, explicitCache: boolean): Record<string, unknown> {
+function toWireMessage(
+	m: ChatMessage,
+	explicitCache: boolean,
+	toolBytes = 0
+): Record<string, unknown> {
 	const wire: Record<string, unknown> = { role: m.role };
 
-	if (m.cacheBreakpoint && explicitCache && m.content && worthCaching(m.content)) {
+	if (m.cacheBreakpoint && explicitCache && m.content && worthCaching(m.content, toolBytes)) {
 		wire.content = withCacheControl(m.content);
 	} else if (m.toolCalls?.length && !m.content) {
 		// An assistant turn that only calls tools carries null content, not an

@@ -40,7 +40,16 @@ export function withCacheControl(text: string): Array<Record<string, unknown>> {
  * Estimated from characters rather than tokenised: this only has to be right
  * to within a factor of two, and a real tokeniser here would mean shipping one
  * per model family.
+ *
+ * `toolBytes` matters more than the text does. Tools sit ahead of the system
+ * message in the cached prefix, and melody sends the whole ops registry — some
+ * thirty strict schemas — on every single iteration of an agent loop. Judging
+ * by the system message alone, as this once did, meant a 1k-character prompt
+ * vetoed caching for the 20k-character payload in front of it, and every
+ * iteration re-paid for the lot.
  */
-export function worthCaching(text: string): boolean {
-	return text.length >= 4000;
+export const CACHE_THRESHOLD_CHARS = 4000;
+
+export function worthCaching(text: string, toolBytes = 0): boolean {
+	return text.length + toolBytes >= CACHE_THRESHOLD_CHARS;
 }

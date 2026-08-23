@@ -34,7 +34,10 @@ const TASK_EFFORT: Record<CoreTask, TaskOptions> = {
 	analyse: { effort: 'low', reasoning: 'hidden' },
 	transcribe_cleanup: { effort: 'medium', reasoning: 'hidden' },
 	control_prompt: { effort: 'medium', reasoning: 'hidden' },
-	edit_selection: { effort: 'high', reasoning: 'hidden' },
+	// Medium rather than high: this is the Ask box, where most requests are a
+	// bar or two and the wait is felt directly. Raise it per task in Admin when
+	// a job deserves more thought.
+	edit_selection: { effort: 'medium', reasoning: 'hidden' },
 	compose_plan: { effort: 'high', reasoning: 'hidden' },
 	compose_realize: { effort: 'high', reasoning: 'hidden' },
 	orchestrate: { effort: 'high', reasoning: 'hidden' }

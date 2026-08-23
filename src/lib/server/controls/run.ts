@@ -4,7 +4,7 @@ import type { Selection } from '$lib/score/types.js';
 import { buildEditContext } from '../ai/context.js';
 import { createJob, emit, finishJob, recordUsage } from '../ai/jobs.js';
 import { runAgentLoop } from '../ai/loop.js';
-import { NoProviderError, resolveTask } from '../ai/provider.js';
+import { NoModelError, NoProviderError, resolveTask } from '../ai/provider.js';
 import { findSkill, skillBlock } from '../ai/skills.js';
 import { agentTools, opTools } from '../ai/tools.js';
 import type { ChatMessage } from '../ai/types.js';
@@ -204,4 +204,4 @@ function styleReference(params: Record<string, unknown>): string {
 	return '';
 }
 
-export { NoProviderError };
+export { NoModelError, NoProviderError };

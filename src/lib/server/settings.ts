@@ -71,10 +71,15 @@ export const DEFAULT_AI: AiSettings = {
 /**
  * Which model to use, and what to fall back to.
  *
- * A slug rather than a constant because the whole point of routing through
- * OpenRouter is that this is a setting: swapping to a cheaper or newer model
- * is a dropdown, not a deploy. The fallback list is tried in order when the
- * primary is unavailable or rate-limited.
+ * Deliberately empty by default. Naming a model here would mean melody picks a
+ * vendor on the operator's behalf and quietly bills them for it — and it would
+ * be a model they never enabled in their own catalogue. The whole point of
+ * routing through OpenRouter is that this is the operator's choice, so an
+ * unconfigured install asks rather than assumes. See resolveTask, which turns
+ * an empty primary into a clear error instead of a request.
+ *
+ * The fallback list is tried in order when the primary is unavailable or
+ * rate-limited.
  */
 export interface ModelSettings {
 	primary: string;
@@ -84,8 +89,8 @@ export interface ModelSettings {
 	maxTokens: number;
 }
 export const DEFAULT_MODELS: ModelSettings = {
-	primary: 'anthropic/claude-opus-5',
-	fallbacks: ['anthropic/claude-sonnet-5', 'openai/gpt-5'],
+	primary: '',
+	fallbacks: [],
 	maxTokens: 16000
 };
 

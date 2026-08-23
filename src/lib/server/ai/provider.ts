@@ -21,6 +21,23 @@ export class NoProviderError extends Error {
 	}
 }
 
+/**
+ * No model chosen for this task, and no global default either.
+ *
+ * Separate from NoProviderError because the remedy is different: the key is
+ * fine, but nothing has been selected to spend it on. Guessing a slug here
+ * would route work to a vendor the operator never enabled.
+ */
+export class NoModelError extends Error {
+	constructor(task: CoreTask) {
+		super(
+			`No model is selected for "${task}". Choose one in Admin → Tasks, ` +
+				`or set a default model in Admin → Models.`
+		);
+		this.name = 'NoModelError';
+	}
+}
+
 export interface ResolvedTask {
 	adapter: ProviderAdapter;
 	model: string;
@@ -57,6 +74,7 @@ export function resolveTask(task: CoreTask, origin?: string): ResolvedTask {
 	const config = db.select().from(taskConfigs).where(eq(taskConfigs.task, task)).get();
 	const models = getSetting<ModelSettings>('models', DEFAULT_MODELS);
 	const model = config?.primaryModelId || models.primary;
+	if (!model) throw new NoModelError(task);
 
 	// The backup model, if the task names one, takes precedence over the
 	// global list — a task configured to fall back to something specific meant
