@@ -83,9 +83,14 @@
 	{#if exportError}
 		<span class="err" title={exportError}>export failed</span>
 	{:else if t.error}
-		<span class="err" title={t.error}>audio unavailable</span>
+		<!-- Spelled out rather than hidden behind a tooltip: this is the one
+		     message that explains why nothing is happening. -->
+		<span class="err">audio unavailable — {t.error}</span>
+	{:else if t.loadProgress !== null}
+		<span class="hint">downloading instruments… {Math.round(t.loadProgress * 100)}%</span>
+		<progress class="dl" max="1" value={t.loadProgress}></progress>
 	{:else if t.loading}
-		<span class="hint">loading instruments…</span>
+		<span class="hint">starting audio…</span>
 	{/if}
 </div>
 
@@ -135,6 +140,14 @@
 	}
 	.err {
 		color: var(--danger);
-		cursor: help;
+		max-width: 32rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.dl {
+		width: 6rem;
+		height: 4px;
+		accent-color: var(--accent);
 	}
 </style>

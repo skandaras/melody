@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="7" fill="#161920" />
+  <!-- A quaver, sized to stay legible at 16px. -->
+  <path
+    d="M13 7.5 22.5 5v3.4L13 10.9z"
+    fill="#6ea8fe"
+  />
+  <path
+    d="M12 7.5h1.6v13.1H12zM21 5h1.5v11.2H21z"
+    fill="#6ea8fe"
+  />
+  <ellipse cx="9.2" cy="21.4" rx="4.2" ry="3.2" transform="rotate(-18 9.2 21.4)" fill="#6ea8fe" />
+  <ellipse cx="18.2" cy="17" rx="4.2" ry="3.2" transform="rotate(-18 18.2 17)" fill="#6ea8fe" />
+</svg>

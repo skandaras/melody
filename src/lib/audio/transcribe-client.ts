@@ -1,4 +1,4 @@
-import type { DetectOptions } from './basic-pitch';
+import type { DetectOptions, DetectProgress } from './basic-pitch';
 import type { DetectedNote } from './transcribe';
 import type { TranscribeRequest, TranscribeResponse } from './transcribe.worker';
 
@@ -15,7 +15,7 @@ import type { TranscribeRequest, TranscribeResponse } from './transcribe.worker'
  */
 
 export interface RunOptions extends Omit<DetectOptions, 'onProgress'> {
-	onProgress?: (fraction: number) => void;
+	onProgress?: (progress: DetectProgress) => void;
 	signal?: AbortSignal;
 }
 
@@ -50,7 +50,7 @@ export function detectNotesInWorker(
 		worker.onmessage = (event: MessageEvent<TranscribeResponse>) => {
 			const msg = event.data;
 			if (msg.id !== id) return;
-			if (msg.type === 'progress') opts.onProgress?.(msg.fraction);
+			if (msg.type === 'progress') opts.onProgress?.(msg.progress);
 			else if (msg.type === 'done') finish(() => resolve(msg.notes));
 			else finish(() => reject(new Error(msg.message)));
 		};

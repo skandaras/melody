@@ -128,6 +128,14 @@ function buildNote(score: Score, part: Part, event: ScoreEvent, opts: RenderOpti
 	else if (opts.diff?.changed.has(note.id)) colour = c.diffChange;
 
 	staveNote.setStyle({ fillStyle: colour ?? c.notation, strokeStyle: colour ?? c.notation });
+	// Ledger lines are the one part of a note VexFlow will not take from
+	// setStyle — they default to a hardcoded #444, which is legible on paper and
+	// all but invisible on a dark sheet. Middle C is the note most likely to
+	// have one, so this is not an edge case.
+	staveNote.setLedgerLineStyle({
+		fillStyle: colour ?? c.notation,
+		strokeStyle: colour ?? c.notation
+	});
 	return staveNote;
 }
 
@@ -154,6 +162,17 @@ export function renderScore(
 	renderer.resize(layout.width * scale, layout.height * scale);
 	const ctx = renderer.getContext();
 	ctx.scale(scale, scale);
+
+	// Make the score's ink the context default before anything is drawn.
+	//
+	// VexFlow initialises its context to black and only some elements get an
+	// explicit setStyle from us — beams, and whatever a Stave draws through its
+	// modifiers, inherit the context instead. On light paper that black is
+	// indistinguishable from correct, which is why this survived until a dark
+	// theme was selected: barlines and beams simply disappeared, leaving only
+	// the notes we happened to colour by hand.
+	ctx.setFillStyle(opts.colors.notation);
+	ctx.setStrokeStyle(opts.colors.notation);
 
 	const hits: NoteHit[] = [];
 	const parts = score.parts.length ? score.parts : [];
@@ -205,7 +224,16 @@ export function renderScore(
 					.format([voice], Math.max(40, lm.width - (lm.leading ? 80 : 24)));
 
 				voice.draw(ctx, stave);
-				for (const beam of beams) beam.setContext(ctx).draw();
+				for (const beam of beams) {
+					// Explicit as well as inherited: a beam joins notes that may
+					// be individually coloured by selection or diff, and without
+					// its own style it would keep whatever the last note set.
+					beam.setStyle({
+						fillStyle: opts.colors.notation,
+						strokeStyle: opts.colors.notation
+					});
+					beam.setContext(ctx).draw();
+				}
 
 				events.forEach((event, i) => {
 					if (!isNote(event)) return;

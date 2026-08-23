@@ -45,8 +45,8 @@
 		{ key: 'accent', label: 'Accent', hint: 'Links, primary buttons, selection' },
 		{ key: 'border', label: 'Borders' },
 		{ key: 'danger', label: 'Errors' },
-		{ key: 'notation', label: 'Notation ink', hint: 'Staves, noteheads, stems' },
-		{ key: 'notationPaper', label: 'Score paper', hint: 'Kept separate so a dark UI can show a light score' },
+		{ key: 'notation', label: 'Score — ink', hint: 'Staves, barlines, beams, noteheads, stems' },
+		{ key: 'notationPaper', label: 'Score — paper', hint: 'The sheet the notation sits on' },
 		{ key: 'diffAdd', label: 'Diff — added' },
 		{ key: 'diffChange', label: 'Diff — changed' },
 		{ key: 'diffRemove', label: 'Diff — removed' }
@@ -177,10 +177,38 @@
 	</section>
 
 	<section>
+		<h2>Score</h2>
+		<label class="toggle">
+			<input
+				type="checkbox"
+				checked={theme.lightScorePaper}
+				onchange={(e) => (theme = { ...theme, lightScorePaper: e.currentTarget.checked })}
+			/>
+			<span>
+				Always use a light sheet for the score
+				<em>
+					Keeps notation dark-on-light whatever the preset does, so a dark interface still
+					reads like paper. Matches what PDF export produces.
+				</em>
+			</span>
+		</label>
+	</section>
+
+	<section>
 		<h2>Colours</h2>
+		{#if theme.lightScorePaper}
+			<p class="hint">
+				The two score swatches are overridden while the light-sheet option above is on.
+			</p>
+		{/if}
 		<div class="colours">
 			{#each COLOURS as field (field.key)}
-				<label class="colour" title={field.hint}>
+				<label
+					class="colour"
+					class:overridden={theme.lightScorePaper &&
+						(field.key === 'notation' || field.key === 'notationPaper')}
+					title={field.hint}
+				>
 					<input
 						type="color"
 						value={String(theme[field.key])}
@@ -378,6 +406,34 @@
 	.colour code {
 		color: var(--fg-dim);
 		font-size: 0.65rem;
+	}
+	.overridden {
+		opacity: 0.45;
+	}
+
+	.toggle {
+		flex-direction: row;
+		align-items: flex-start;
+		gap: var(--space-2);
+		cursor: pointer;
+	}
+	.toggle input {
+		margin-top: 2px;
+		flex: none;
+		accent-color: var(--accent);
+	}
+	.toggle span {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		color: var(--fg);
+		font-size: var(--text-sm);
+	}
+	.toggle em {
+		font-style: normal;
+		color: var(--fg-dim);
+		font-size: var(--text-xs);
+		line-height: 1.4;
 	}
 
 	.preview .pane {

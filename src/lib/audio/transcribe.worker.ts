@@ -1,4 +1,4 @@
-import { detectNotes, type DetectOptions } from './basic-pitch';
+import { detectNotes, type DetectOptions, type DetectProgress } from './basic-pitch';
 import type { DetectedNote } from './transcribe';
 
 /**
@@ -22,7 +22,7 @@ export interface TranscribeRequest {
 }
 
 export type TranscribeResponse =
-	| { id: number; type: 'progress'; fraction: number }
+	| { id: number; type: 'progress'; progress: DetectProgress }
 	| { id: number; type: 'done'; notes: DetectedNote[] }
 	| { id: number; type: 'error'; message: string };
 
@@ -33,7 +33,7 @@ self.onmessage = async (event: MessageEvent<TranscribeRequest>) => {
 	try {
 		const notes = await detectNotes(samples, {
 			...options,
-			onProgress: (fraction) => post({ id, type: 'progress', fraction })
+			onProgress: (progress) => post({ id, type: 'progress', progress })
 		});
 		post({ id, type: 'done', notes });
 	} catch (err) {
