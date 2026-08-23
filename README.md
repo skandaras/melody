@@ -18,11 +18,13 @@ Pitch detection runs in the browser (a Web Worker running Spotify's
 basic-pitch), then tempo estimation, quantisation and bar-splitting turn the
 detected notes into a draft score. No key required — this whole path is free.
 
-**Edit it.** Notation is engraved with VexFlow and is directly selectable —
-click a note, shift-click to add, or rubber-band a region; arrow keys
-transpose (shift for octaves), delete removes. Every mutation in the app —
-yours, a control's, the model's — goes through one registry of 27 operations,
-so undo, revisions and AI edits all work the same way.
+**Edit it.** Notation is engraved with VexFlow and directly editable. In
+Select mode: click a note, shift-click to add, or rubber-band a region; arrow
+keys transpose (shift for octaves), delete removes. In Add mode: pick a
+duration and click the stave to place a note, with a ghost notehead showing
+exactly where it will land. Every mutation in the app — yours, a control's,
+the model's — goes through one registry of 27 operations, so undo, revisions
+and AI edits all work the same way.
 
 **Ask for changes.** Describe what you want: *make this darker*, *add a
 walking bass*, *orchestrate for string quartet*. The model works through the
@@ -108,7 +110,7 @@ is pruned from the runtime image, so neither is in git and neither is
 downloaded at runtime.
 
 ```bash
-npm test          # 357 tests, no network, no API key
+npm test          # 389 tests, no network, no API key
 npm run check     # svelte-check + tsc
 npm run build     # adapter-node output in build/
 npm start         # run the built server
@@ -198,19 +200,29 @@ controls work and nothing else does.
    actually want in the picker. The list is filtered to tool-capable models
    by default, because a model that can't call tools can't edit a score and
    fails in a way that's hard to read.
-3. **Defaults** — primary model, ordered fallbacks, token ceiling, and the
-   budget cap. The default primary is `anthropic/claude-opus-5` falling back
-   to `anthropic/claude-sonnet-5` then `openai/gpt-5`.
+3. **Defaults** — pick the primary model, ordered fallbacks, token ceiling and
+   budget cap. **Nothing is preselected.** melody will not choose a vendor, or
+   spend your credit, on your behalf; until you pick one, anything that calls a
+   model says so and names where to fix it.
+4. **Tasks** — optional, but this is where the money is. Each of the eight jobs
+   can take its own model, reasoning mode, effort and token ceiling, with its
+   system prompt and version history beside it. Titling a piece and
+   orchestrating one want very different things; leaving both on one global
+   setting means paying arranging rates to generate a title.
 
 ### 5. Your first score
 
 **New score** opens an empty document — no parts, so the canvas starts blank.
-Two ways forward, both in the left rail:
+Three ways forward:
 
-- **Audio in** — record or drop a file. Transcription creates the part for
-  you. This is the intended path and the one worth testing first: hum eight
-  bars, and you should get notation back without a single call to OpenRouter.
-- **Add part** — start from an empty piano stave instead.
+- **Audio in**, in the left rail — record or drop a file. Transcription creates
+  the part for you. This is the intended path and the one worth testing first:
+  hum eight bars, and you should get notation back without a single call to
+  OpenRouter.
+- **Add part**, also in the left rail — start from an empty piano stave.
+- **Add note**, in the toolbar above the score — switch the pointer to Add,
+  pick a note value, and click the stave. How you write something from nothing
+  without a microphone.
 
 Once there are notes: select a few, try *Transpose* (free, instant), then
 *Darken* or *Increase energy*. AI edits arrive as a highlighted diff with
@@ -284,7 +296,7 @@ the body is read at prompt time, not cached.
 
 ```
 src/lib/score/       document model, 27 ops, analysis, validation — all pure
-src/lib/render/      VexFlow engraving, line breaking, hit testing
+src/lib/render/      VexFlow engraving, line breaking, hit testing, note placement
 src/lib/audio/       capture, transcription, synthesis, mixing
 src/lib/export/      MIDI, MusicXML, PDF, WAV
 src/lib/server/ai/   OpenRouter client, strict tool schemas, agent loop, SSE jobs
@@ -331,7 +343,6 @@ playback and mixing, the AI layer and agent loop, all three control tiers,
 PDF/MusicXML/MIDI/WAV export, the clip library, per-user theming, and the
 admin panel's provider and model management.
 
-Not built yet: the remaining admin tabs — task prompt version history,
-usage and budget reporting, controls CRUD, and skill editing. Their data is
-already recorded; only the UI is missing, and everything they would configure
-has a working default.
+Not built yet: the remaining admin tabs — usage and budget reporting,
+controls CRUD, and skill editing. Their data is already recorded; only the UI
+is missing, and everything they would configure has a working default.
