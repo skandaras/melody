@@ -124,6 +124,60 @@ describe('runAgentLoop — normal flow', () => {
 	});
 });
 
+describe('runAgentLoop — streaming', () => {
+	it('emits prose as deltas, not only at the end', async () => {
+		const { promise, events } = run([{ content: 'Brightened the melody.', finishReason: 'stop' }]);
+		await promise;
+
+		const deltas = events.filter((e) => e.type === 'delta');
+		expect(deltas.length).toBeGreaterThan(0);
+		expect(deltas.map((d) => (d as { text: string }).text).join('')).toBe('Brightened the melody.');
+	});
+
+	it('starts each iteration with its own prose', async () => {
+		const { promise, events } = run([
+			{
+				content: 'First I will look.',
+				toolCalls: [{ id: 'c1', name: 'read_score', arguments: '{}' }],
+				finishReason: 'tool_calls'
+			},
+			{ content: 'Now done.', finishReason: 'stop' }
+		]);
+		await promise;
+
+		// Two iterations, each announcing itself before its own deltas arrive.
+		const order = events.filter((e) => e.type === 'iteration' || e.type === 'delta').map((e) => e.type);
+		expect(order[0]).toBe('iteration');
+		expect(order).toContain('delta');
+		expect(order.filter((t) => t === 'iteration')).toHaveLength(2);
+	});
+
+	/**
+	 * A stream that ends without a done chunk is a dropped connection, not an
+	 * empty answer. Reporting it as "the model said nothing" would throw away a
+	 * turn that was paid for and give no clue why.
+	 */
+	it('reports a stream that ends without a result rather than treating it as silence', async () => {
+		const adapter = new MockAdapter([{ content: 'x', finishReason: 'stop' }]);
+		// eslint-disable-next-line require-yield
+		adapter.stream = async function* () {
+			return;
+		};
+
+		const r = await runAgentLoop({
+			adapter,
+			systemPrompt: 'S',
+			userPrompt: 'U',
+			score: fixture(),
+			maxIterations: 4,
+			maxOps: 50
+		});
+
+		expect(r.stopReason).toBe('truncated');
+		expect(r.warnings.join(' ')).toMatch(/stream ended/i);
+	});
+});
+
 describe('runAgentLoop — read-only tools', () => {
 	it('answers read_score without recording an op', async () => {
 		const { promise, adapter } = run([
