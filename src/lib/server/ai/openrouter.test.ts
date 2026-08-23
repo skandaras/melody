@@ -143,6 +143,41 @@ describe('cache breakpoints', () => {
 		expect((body.messages as Record<string, unknown>[])[0].content).toBe(long);
 	});
 
+	/**
+	 * The regression that mattered: melody's system prompts are around 1k
+	 * characters, well under the threshold, while the tool payload in front of
+	 * them is tens of thousands. Judged on the prompt alone, no agent turn ever
+	 * got a breakpoint and every iteration re-paid for the whole registry.
+	 */
+	it('counts the tool payload toward the threshold', () => {
+		const shortPrompt = 'x'.repeat(600);
+		const tools = [
+			{
+				type: 'function' as const,
+				function: {
+					name: 'insert_notes',
+					description: 'y'.repeat(8000),
+					parameters: { type: 'object', properties: {}, required: [] },
+					strict: true as const
+				}
+			}
+		];
+
+		const withoutTools = adapter('anthropic/claude-opus-5').body(
+			{ messages: [{ role: 'system', content: shortPrompt, cacheBreakpoint: true }] },
+			false
+		);
+		expect((withoutTools.messages as Record<string, unknown>[])[0].content).toBe(shortPrompt);
+
+		const withTools = adapter('anthropic/claude-opus-5').body(
+			{ messages: [{ role: 'system', content: shortPrompt, cacheBreakpoint: true }], tools },
+			false
+		);
+		expect((withTools.messages as Record<string, unknown>[])[0].content).toEqual([
+			{ type: 'text', text: shortPrompt, cache_control: { type: 'ephemeral' } }
+		]);
+	});
+
 	it('does not mark a prefix too short to be worth caching', () => {
 		const body = adapter('anthropic/claude-opus-5').body(
 			{ messages: [{ role: 'system', content: 'short', cacheBreakpoint: true }] },

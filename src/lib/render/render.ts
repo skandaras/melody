@@ -62,9 +62,36 @@ export interface NoteHit {
 	height: number;
 }
 
+/**
+ * Where one measure of one part was actually drawn.
+ *
+ * Recorded during the render rather than recomputed afterwards, because the
+ * only authority on where VexFlow put a stave line is VexFlow. Deriving it
+ * from staveHeight would be a second implementation of the same thing, and the
+ * two would disagree the moment a stave gained a clef change or an extra
+ * modifier — which is exactly when clicking the wrong pitch is hardest to
+ * explain.
+ */
+export interface StaveBox {
+	partId: string;
+	/** Index into score.parts, so a caller can find the part without a lookup. */
+	partIndex: number;
+	clef: string;
+	/** Left edge and width of the notes area, past any clef and key signature. */
+	x: number;
+	width: number;
+	/** y of the top stave line, and the gap between adjacent lines. */
+	topLineY: number;
+	lineSpacing: number;
+	startTick: number;
+	endTick: number;
+}
+
 export interface RenderResult {
 	layout: ScoreLayout;
 	hits: NoteHit[];
+	/** Every drawn measure, for turning a click back into a position. */
+	staves: StaveBox[];
 	width: number;
 	height: number;
 }
@@ -128,6 +155,14 @@ function buildNote(score: Score, part: Part, event: ScoreEvent, opts: RenderOpti
 	else if (opts.diff?.changed.has(note.id)) colour = c.diffChange;
 
 	staveNote.setStyle({ fillStyle: colour ?? c.notation, strokeStyle: colour ?? c.notation });
+	// Ledger lines are the one part of a note VexFlow will not take from
+	// setStyle — they default to a hardcoded #444, which is legible on paper and
+	// all but invisible on a dark sheet. Middle C is the note most likely to
+	// have one, so this is not an edge case.
+	staveNote.setLedgerLineStyle({
+		fillStyle: colour ?? c.notation,
+		strokeStyle: colour ?? c.notation
+	});
 	return staveNote;
 }
 
@@ -155,7 +190,19 @@ export function renderScore(
 	const ctx = renderer.getContext();
 	ctx.scale(scale, scale);
 
+	// Make the score's ink the context default before anything is drawn.
+	//
+	// VexFlow initialises its context to black and only some elements get an
+	// explicit setStyle from us — beams, and whatever a Stave draws through its
+	// modifiers, inherit the context instead. On light paper that black is
+	// indistinguishable from correct, which is why this survived until a dark
+	// theme was selected: barlines and beams simply disappeared, leaving only
+	// the notes we happened to colour by hand.
+	ctx.setFillStyle(opts.colors.notation);
+	ctx.setStrokeStyle(opts.colors.notation);
+
 	const hits: NoteHit[] = [];
+	const staveBoxes: StaveBox[] = [];
 	const parts = score.parts.length ? score.parts : [];
 
 	for (const system of layout.systems) {
@@ -185,6 +232,20 @@ export function renderScore(
 				stave.setContext(ctx).draw();
 				staves.push(stave);
 
+				// Ask the stave where it actually put itself, now that its clef and
+				// signatures have been added and it has been drawn.
+				staveBoxes.push({
+					partId: part.id,
+					partIndex,
+					clef: CLEF_MAP[part.clef] ?? 'treble',
+					x: stave.getNoteStartX() * scale,
+					width: Math.max(1, (stave.getNoteEndX() - stave.getNoteStartX()) * scale),
+					topLineY: stave.getYForLine(0) * scale,
+					lineSpacing: stave.getSpacingBetweenLines() * scale,
+					startTick: lm.measure.startTick,
+					endTick: lm.measure.endTick
+				});
+
 				const events = eventsIn(part, lm.measure.startTick, lm.measure.endTick);
 				if (!events.length) continue;
 
@@ -205,7 +266,16 @@ export function renderScore(
 					.format([voice], Math.max(40, lm.width - (lm.leading ? 80 : 24)));
 
 				voice.draw(ctx, stave);
-				for (const beam of beams) beam.setContext(ctx).draw();
+				for (const beam of beams) {
+					// Explicit as well as inherited: a beam joins notes that may
+					// be individually coloured by selection or diff, and without
+					// its own style it would keep whatever the last note set.
+					beam.setStyle({
+						fillStyle: opts.colors.notation,
+						strokeStyle: opts.colors.notation
+					});
+					beam.setContext(ctx).draw();
+				}
 
 				events.forEach((event, i) => {
 					if (!isNote(event)) return;
@@ -240,7 +310,13 @@ export function renderScore(
 		});
 	}
 
-	return { layout, hits, width: layout.width * scale, height: layout.height * scale };
+	return {
+		layout,
+		hits,
+		staves: staveBoxes,
+		width: layout.width * scale,
+		height: layout.height * scale
+	};
 }
 
 /** Nearest note to a point, within a tolerance. Used for click selection. */

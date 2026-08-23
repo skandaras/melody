@@ -53,7 +53,20 @@ export interface Theme {
 	notationScale: number;
 	/** Spacing scale base in rem. Every --space-N is a multiple of this. */
 	spaceBase: number;
+	/**
+	 * Force a light sheet with dark ink for the notation, whatever the preset
+	 * says.
+	 *
+	 * Reading music off a dark ground is a minority preference even among people
+	 * who want a dark interface, and printed output is light regardless — so
+	 * this decouples the score from the chrome without having to hand-edit two
+	 * swatches every time the preset changes.
+	 */
+	lightScorePaper: boolean;
 }
+
+/** Applied when lightScorePaper is on. Matches what PDF export already uses. */
+const LIGHT_PAPER = { notation: '#1a1a1a', notationPaper: '#ffffff' } as const;
 
 export const PRESETS: Record<string, Theme> = {
 	Studio: {
@@ -63,7 +76,8 @@ export const PRESETS: Record<string, Theme> = {
 		diffAdd: '#4ade80', diffRemove: '#f87171', diffChange: '#fbbf24',
 		notation: '#1a1a1a', notationPaper: '#faf8f4',
 		font: "'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif",
-		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25
+		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
+		lightScorePaper: false
 	},
 	Manuscript: {
 		bg: '#f4f1e8', bgPane: '#fbf9f3', bgRaise: '#ffffff',
@@ -72,7 +86,8 @@ export const PRESETS: Record<string, Theme> = {
 		diffAdd: '#2f7d44', diffRemove: '#b3453f', diffChange: '#b07d1a',
 		notation: '#1c1a16', notationPaper: '#ffffff',
 		font: "'Iowan Old Style', 'Palatino Linotype', Georgia, serif",
-		radius: '3px', baseFont: '104%', notationScale: 1.05, spaceBase: 0.25
+		radius: '3px', baseFont: '104%', notationScale: 1.05, spaceBase: 0.25,
+		lightScorePaper: false
 	},
 	Midnight: {
 		bg: '#07070c', bgPane: '#0e0e17', bgRaise: '#15151f',
@@ -81,7 +96,8 @@ export const PRESETS: Record<string, Theme> = {
 		diffAdd: '#34d399', diffRemove: '#fb7185', diffChange: '#facc15',
 		notation: '#e8e6f0', notationPaper: '#12121b',
 		font: "'Inter', ui-sans-serif, system-ui, sans-serif",
-		radius: '8px', baseFont: '100%', notationScale: 1, spaceBase: 0.25
+		radius: '8px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
+		lightScorePaper: false
 	},
 	Contrast: {
 		bg: '#000000', bgPane: '#0b0b0b', bgRaise: '#141414',
@@ -90,7 +106,8 @@ export const PRESETS: Record<string, Theme> = {
 		diffAdd: '#00e676', diffRemove: '#ff5252', diffChange: '#ffd400',
 		notation: '#ffffff', notationPaper: '#000000',
 		font: "ui-sans-serif, system-ui, sans-serif",
-		radius: '2px', baseFont: '112%', notationScale: 1.2, spaceBase: 0.28
+		radius: '2px', baseFont: '112%', notationScale: 1.2, spaceBase: 0.28,
+		lightScorePaper: false
 	},
 	Paper: {
 		bg: '#eceff4', bgPane: '#ffffff', bgRaise: '#ffffff',
@@ -99,7 +116,8 @@ export const PRESETS: Record<string, Theme> = {
 		diffAdd: '#2f9e44', diffRemove: '#c0392b', diffChange: '#e8a13a',
 		notation: '#1a1a1a', notationPaper: '#ffffff',
 		font: "'Inter', ui-sans-serif, system-ui, sans-serif",
-		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25
+		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
+		lightScorePaper: false
 	}
 };
 
@@ -110,6 +128,11 @@ export const LIGHT_PRESETS = new Set(['Manuscript', 'Paper']);
 
 export function themeCss(t: Theme): string {
 	const space = (n: number) => `${(t.spaceBase * n).toFixed(3)}rem`;
+	// The override happens here rather than at save time so the preset's own
+	// notation colours survive underneath it — turning the toggle back off
+	// restores them instead of having overwritten them.
+	const ink = t.lightScorePaper ? LIGHT_PAPER.notation : t.notation;
+	const paper = t.lightScorePaper ? LIGHT_PAPER.notationPaper : t.notationPaper;
 	return [
 		':root{',
 		`--bg:${t.bg};`,
@@ -123,8 +146,8 @@ export function themeCss(t: Theme): string {
 		`--diff-add:${t.diffAdd};`,
 		`--diff-remove:${t.diffRemove};`,
 		`--diff-change:${t.diffChange};`,
-		`--notation:${t.notation};`,
-		`--notation-paper:${t.notationPaper};`,
+		`--notation:${ink};`,
+		`--notation-paper:${paper};`,
 		`--notation-scale:${t.notationScale};`,
 		`--font:${t.font};`,
 		`--radius:${t.radius};`,
@@ -163,7 +186,9 @@ export function normalizeTheme(raw: unknown): Theme {
 		const v = r[key];
 		const def = DEFAULT_THEME[key];
 
-		if (typeof def === 'number') {
+		if (typeof def === 'boolean') {
+			if (typeof v === 'boolean') (out[key] as boolean) = v;
+		} else if (typeof def === 'number') {
 			if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 10) {
 				(out[key] as number) = v;
 			}

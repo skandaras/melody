@@ -84,4 +84,38 @@ describe('themes', () => {
 		expect(css).toContain('--space-1:0.500rem;');
 		expect(css).toContain('--space-2:1.000rem;');
 	});
+
+	describe('light score paper', () => {
+		// Contrast is the preset that put a black sheet under white ink, which is
+		// what made the score look broken rather than styled.
+		const dark = { ...PRESETS.Contrast, lightScorePaper: true };
+
+		it('overrides both score tokens when on', () => {
+			const css = themeCss(dark);
+			expect(css).toContain('--notation:#1a1a1a;');
+			expect(css).toContain('--notation-paper:#ffffff;');
+		});
+
+		it('leaves the rest of the preset alone', () => {
+			const css = themeCss(dark);
+			expect(css).toContain(`--bg:${PRESETS.Contrast.bg};`);
+			expect(css).toContain(`--accent:${PRESETS.Contrast.accent};`);
+		});
+
+		it('does not overwrite the stored colours, so turning it off restores them', () => {
+			expect(dark.notation).toBe(PRESETS.Contrast.notation);
+			const css = themeCss({ ...dark, lightScorePaper: false });
+			expect(css).toContain(`--notation:${PRESETS.Contrast.notation};`);
+			expect(css).toContain(`--notation-paper:${PRESETS.Contrast.notationPaper};`);
+		});
+
+		it('round-trips through the normaliser', () => {
+			expect(normalizeTheme({ lightScorePaper: true }).lightScorePaper).toBe(true);
+			expect(normalizeTheme({ lightScorePaper: false }).lightScorePaper).toBe(false);
+			// A non-boolean falls back to the default rather than being coerced.
+			expect(normalizeTheme({ lightScorePaper: 'yes' }).lightScorePaper).toBe(
+				DEFAULT_THEME.lightScorePaper
+			);
+		});
+	});
 });

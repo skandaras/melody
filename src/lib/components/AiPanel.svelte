@@ -28,6 +28,9 @@
 	let running = $state(false);
 	let error = $state('');
 	let status = $state('');
+	/** Prose as it arrives, so a long turn shows something other than a number. */
+	let streamed = $state('');
+	let step = $state(0);
 	let log = $state<string[]>([]);
 	let source: EventSource | null = null;
 
@@ -65,7 +68,20 @@
 			status = JSON.parse(e.data).message ?? '';
 		});
 		source.addEventListener('iteration', (e) => {
-			status = `Working — step ${JSON.parse(e.data).n}`;
+			step = JSON.parse(e.data).n;
+			// Each step starts its own prose, so drop the last one rather than
+			// letting two iterations' sentences run together.
+			streamed = '';
+			status = `Working — step ${step}`;
+		});
+		source.addEventListener('reasoning', () => {
+			// Reasoning is hidden by default, so this usually carries no text —
+			// but knowing the model is thinking is the point.
+			status = `Thinking — step ${step}`;
+		});
+		source.addEventListener('delta', (e) => {
+			streamed += JSON.parse(e.data).text ?? '';
+			status = '';
 		});
 		source.addEventListener('tool', (e) => {
 			const d = JSON.parse(e.data);
@@ -80,6 +96,7 @@
 			} else {
 				status = d.summary || 'The model made no changes.';
 			}
+			streamed = '';
 		});
 		source.addEventListener('error', (e) => {
 			// A payload means the job failed; no payload is the connection
@@ -103,6 +120,8 @@
 		close();
 		running = false;
 		status = '';
+		streamed = '';
+		step = 0;
 	}
 
 	function close() {
@@ -144,6 +163,9 @@
 		</button>
 	</div>
 
+	{#if streamed}
+		<p class="msg streamed">{streamed}</p>
+	{/if}
 	{#if status}
 		<p class="msg">{status}</p>
 	{/if}
@@ -217,6 +239,14 @@
 		font-size: var(--text-xs);
 		color: var(--fg-dim);
 		line-height: 1.4;
+	}
+	.streamed {
+		color: var(--fg);
+		max-height: 8rem;
+		overflow-y: auto;
+		white-space: pre-wrap;
+		border-left: 2px solid var(--border);
+		padding-left: var(--space-2);
 	}
 	.err {
 		color: var(--danger);

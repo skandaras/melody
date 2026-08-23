@@ -1,5 +1,10 @@
 import { scoreToMidiBuffer, scoreDurationSeconds, type MidiOptions } from '$lib/export/midi';
 import type { Score } from '$lib/score/types';
+// Types only — erased at compile time, so this does not pull the library
+// (which touches AudioContext on import) into the server bundle. Using the
+// real types rather than hand-written structural casts is what makes a
+// signature mismatch a compile error instead of silence at runtime.
+import type { Sequencer, WorkletSynthesizer } from 'spessasynth_lib';
 
 /**
  * Playback and audio export.
@@ -21,6 +26,14 @@ export interface TransportState {
 	position: number;
 	duration: number;
 	error: string | null;
+	/**
+	 * Soundfont download, 0..1, or null when not downloading.
+	 *
+	 * The default General MIDI bank is 40MB. On a home connection that is a
+	 * genuine wait, and a play button that just sits there is indistinguishable
+	 * from a broken one — so the first play reports what it is doing.
+	 */
+	loadProgress: number | null;
 }
 
 type Listener = (state: TransportState) => void;
@@ -35,8 +48,8 @@ type Listener = (state: TransportState) => void;
  */
 export class Player {
 	private ctx: AudioContext | null = null;
-	private synth: unknown = null;
-	private sequencer: unknown = null;
+	private synth: WorkletSynthesizer | null = null;
+	private sequencer: Sequencer | null = null;
 	private soundfont: ArrayBuffer | null = null;
 	private listeners = new Set<Listener>();
 	private raf: number | null = null;
@@ -50,7 +63,8 @@ export class Player {
 		playing: false,
 		position: 0,
 		duration: 0,
-		error: null
+		error: null,
+		loadProgress: null
 	};
 
 	constructor(soundfontUrl: () => string) {
@@ -96,11 +110,12 @@ export class Player {
 			this.ctx = ctx;
 			this.synth = synth;
 			this.sequencer = new Sequencer(synth);
-			this.emit({ ready: true, loading: false });
+			this.emit({ ready: true, loading: false, loadProgress: null });
 		} catch (err) {
 			this.emit({
 				loading: false,
 				ready: false,
+				loadProgress: null,
 				error: err instanceof Error ? err.message : String(err)
 			});
 			throw err;
@@ -117,32 +132,63 @@ export class Player {
 					`Run "npm run assets" to install it.`
 			);
 		}
-		this.soundfont = await res.arrayBuffer();
+
+		// Read it in chunks so the wait is reportable. Content-Length is present
+		// for a static file; without it there is nothing to divide by, so fall
+		// back to the plain read rather than inventing a denominator.
+		const total = Number(res.headers.get('content-length') ?? 0);
+		if (!res.body || !total) {
+			this.emit({ loadProgress: null });
+			this.soundfont = await res.arrayBuffer();
+			return this.soundfont;
+		}
+
+		const reader = res.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let received = 0;
+		this.emit({ loadProgress: 0 });
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+			received += value.length;
+			this.emit({ loadProgress: Math.min(1, received / total) });
+		}
+
+		const merged = new Uint8Array(received);
+		let at = 0;
+		for (const c of chunks) {
+			merged.set(c, at);
+			at += c.length;
+		}
+		this.emit({ loadProgress: null });
+		this.soundfont = merged.buffer;
 		return this.soundfont;
 	}
 
 	/** Load a score for playback. Replaces whatever was loaded before. */
 	async load(score: Score, opts?: MidiOptions): Promise<void> {
 		await this.init();
-		const seq = this.sequencer as {
-			loadNewSongList: (m: ArrayBuffer[]) => void;
-			pause: () => void;
-		};
-		seq.loadNewSongList([scoreToMidiBuffer(score, opts)]);
-		seq.pause();
+		// The sequencer takes `{binary}` envelopes, not bare ArrayBuffers. Handed
+		// a bare one it still reports songCount 1 and raises no error — it simply
+		// parses nothing, leaving duration at 0 and playing silence.
+		this.sequencer?.loadNewSongList([
+			{ binary: scoreToMidiBuffer(score, opts), fileName: `${score.title || 'score'}.mid` }
+		]);
+		this.sequencer?.pause();
 		this.emit({ playing: false, position: 0, duration: scoreDurationSeconds(score) });
 	}
 
 	async play(): Promise<void> {
 		await this.init();
 		await this.ctx?.resume();
-		(this.sequencer as { play: () => void }).play();
+		this.sequencer?.play();
 		this.emit({ playing: true });
 		this.track();
 	}
 
 	pause(): void {
-		(this.sequencer as { pause?: () => void } | null)?.pause?.();
+		this.sequencer?.pause();
 		this.emit({ playing: false });
 		this.stopTracking();
 	}
@@ -154,23 +200,19 @@ export class Player {
 	}
 
 	seek(seconds: number): void {
-		const seq = this.sequencer as { currentTime: number } | null;
-		if (seq) seq.currentTime = Math.max(0, seconds);
+		if (this.sequencer) this.sequencer.currentTime = Math.max(0, seconds);
 		this.emit({ position: Math.max(0, seconds) });
 	}
 
 	/** Live mixer: 0..1 per MIDI channel, applied as CC7. */
 	setChannelVolume(channel: number, volume: number): void {
-		const synth = this.synth as {
-			controllerChange?: (ch: number, cc: number, v: number) => void;
-		} | null;
-		synth?.controllerChange?.(channel, 7, Math.round(Math.max(0, Math.min(1, volume)) * 127));
+		this.synth?.controllerChange(channel, 7, Math.round(Math.max(0, Math.min(1, volume)) * 127));
 	}
 
 	private track() {
 		this.stopTracking();
 		const tick = () => {
-			const seq = this.sequencer as { currentTime: number; paused: boolean } | null;
+			const seq = this.sequencer;
 			if (!seq) return;
 			// The sequencer stops on its own at the end of the song; reflect
 			// that rather than leaving the UI showing "playing" forever.
@@ -192,7 +234,7 @@ export class Player {
 
 	destroy(): void {
 		this.stopTracking();
-		(this.synth as { destroy?: () => void } | null)?.destroy?.();
+		this.synth?.destroy();
 		void this.ctx?.close();
 		this.ctx = null;
 		this.synth = null;

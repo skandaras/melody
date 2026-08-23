@@ -19,7 +19,8 @@ const IDLE: TransportState = {
 	playing: false,
 	position: 0,
 	duration: 0,
-	error: null
+	error: null,
+	loadProgress: null
 };
 
 export class PlayerStore {

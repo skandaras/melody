@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { readJson, requireUser } from '$lib/server/api';
-import { NoProviderError, runControl } from '$lib/server/controls/run';
+import { NoModelError, NoProviderError, runControl } from '$lib/server/controls/run';
 import type { Selection } from '$lib/score/types';
 import type { RequestHandler } from './$types';
 
@@ -28,7 +28,7 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		});
 		return json(result);
 	} catch (err) {
-		if (err instanceof NoProviderError) error(400, err.message);
+		if (err instanceof NoProviderError || err instanceof NoModelError) error(400, err.message);
 		throw err;
 	}
 };

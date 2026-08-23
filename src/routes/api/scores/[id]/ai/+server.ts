@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { readJson, requireUser } from '$lib/server/api';
-import { NoProviderError } from '$lib/server/ai/provider';
+import { NoModelError, NoProviderError } from '$lib/server/ai/provider';
 import { startEdit } from '$lib/server/ai/run';
 import type { Selection } from '$lib/score/types';
 import type { RequestHandler } from './$types';
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 	} catch (err) {
 		// A missing key is a configuration problem with a clear fix, not a
 		// server fault — say so rather than returning a 500.
-		if (err instanceof NoProviderError) error(400, err.message);
+		if (err instanceof NoProviderError || err instanceof NoModelError) error(400, err.message);
 		throw err;
 	}
 };

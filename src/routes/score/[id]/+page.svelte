@@ -5,12 +5,14 @@
 	import ClipPanel from '$lib/components/ClipPanel.svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
 	import ExportMenu from '$lib/components/ExportMenu.svelte';
+	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { analyse } from '$lib/score/analyse';
 	import type { Op } from '$lib/score/apply';
+	import type { Position } from '$lib/render/locate';
 	import type { Score, Selection } from '$lib/score/types';
 	import type { PageServerData } from './$types';
 
@@ -92,6 +94,43 @@
 	}
 
 	/** Apply operations through the one write path, so undo and diff work. */
+	let mode = $state<'select' | 'add'>('select');
+	let entry = $state<NoteEntry>({
+		duration: 480,
+		dotted: false,
+		grid: 16,
+		triplets: false,
+		rest: false,
+		accidental: 0
+	});
+
+	/**
+	 * Place a note where the pointer landed.
+	 *
+	 * Goes through insert_notes like everything else, so undo, revisions and the
+	 * diff review all apply without a second write path.
+	 */
+	async function placeNote(position: Position) {
+		const dur = entry.dotted ? Math.round(entry.duration * 1.5) : entry.duration;
+		// An empty pitch list is how insert_notes writes a rest.
+		const pitches = entry.rest
+			? []
+			: [Math.max(0, Math.min(127, position.midi + entry.accidental))];
+
+		await runOps(
+			[
+				{
+					op: 'insert_notes',
+					args: {
+						partId: position.partId,
+						notes: [{ tick: position.tick, dur, pitches }]
+					}
+				} as Op
+			],
+			entry.rest ? 'Added a rest' : 'Added a note'
+		);
+	}
+
 	async function runOps(ops: Op[], label: string, source: 'user' | 'control' = 'user') {
 		busy = true;
 		error = '';
@@ -267,8 +306,20 @@
 
 	<main class="centre">
 		<div class="toolbar">
+			<NotePalette
+				{mode}
+				{entry}
+				ppq={score.ppq}
+				disabled={busy}
+				onmode={(m) => (mode = m)}
+				onentry={(e) => (entry = e)}
+			/>
 			<span class="sel">
-				{selectionCount ? `${selectionCount} selected` : 'Nothing selected — edits apply to all'}
+				{#if mode === 'add'}
+					Click the stave to place a note
+				{:else}
+					{selectionCount ? `${selectionCount} selected` : 'Nothing selected — edits apply to all'}
+				{/if}
 			</span>
 			<div class="spacer"></div>
 			<ExportMenu {score} soundfontUrl={data.soundfontUrl} />
@@ -300,7 +351,16 @@
 		{/if}
 
 		<div class="scroll">
-			<ScoreCanvas {score} {selected} {scale} diff={pendingDiff} {onselect} />
+			<ScoreCanvas
+				{score}
+				{selected}
+				{scale}
+				{mode}
+				{entry}
+				diff={pendingDiff}
+				{onselect}
+				onplace={placeNote}
+			/>
 		</div>
 
 		<Transport {score} {player} soundfontUrl={data.soundfontUrl} />

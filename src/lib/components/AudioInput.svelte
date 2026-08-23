@@ -24,6 +24,10 @@
 
 	let stage = $state<Stage>('idle');
 	let progress = $state(0);
+	/** What the detector is doing, when it is more specific than the stage. */
+	let detail = $state('');
+	/** Set when a run passes the point where it should plainly have finished. */
+	let slow = $state(false);
 	let error = $state('');
 	let hint = $state('');
 	let elapsed = $state(0);
@@ -37,8 +41,18 @@
 
 	let recorder: Recorder | null = null;
 	let timer: ReturnType<typeof setInterval> | null = null;
+	let watchdog: ReturnType<typeof setTimeout> | null = null;
 	let controller: AbortController | null = null;
 	let fileInput: HTMLInputElement | null = $state(null);
+
+	/**
+	 * How long a run may go without finishing before we admit something is off.
+	 *
+	 * Inference is seconds when WebGL is available and minutes when the worker
+	 * silently falls back to CPU. The user cannot tell those apart from a frozen
+	 * bar, so say so rather than letting them guess.
+	 */
+	const SLOW_AFTER_MS = 45_000;
 
 	const busy = $derived(stage !== 'idle' && stage !== 'recording');
 	const bpm = $derived.by(() => {
@@ -82,12 +96,16 @@
 
 	function cancel() {
 		clearTimer();
+		if (watchdog) clearTimeout(watchdog);
+		watchdog = null;
 		recorder?.cancel();
 		recorder = null;
 		controller?.abort();
 		controller = null;
 		stage = 'idle';
 		progress = 0;
+		detail = '';
+		slow = false;
 	}
 
 	function clearTimer() {
@@ -113,9 +131,17 @@
 			}
 
 			stage = 'detecting';
+			watchdog = setTimeout(() => (slow = true), SLOW_AFTER_MS);
 			const notes = await detectNotesInWorker(normalise(decoded.samples), {
 				signal: controller.signal,
-				onProgress: (f) => (progress = f)
+				onProgress: (p) => {
+					if (p.phase === 'model') {
+						detail = 'Loading the detection model…';
+						return;
+					}
+					progress = p.fraction;
+					detail = p.windows > 1 ? `${p.window} of ${p.windows}` : '';
+				}
 			});
 
 			if (notes.length === 0) {
@@ -145,9 +171,13 @@
 				error = e instanceof Error ? e.message : String(e);
 			}
 		} finally {
+			if (watchdog) clearTimeout(watchdog);
+			watchdog = null;
 			controller = null;
 			stage = 'idle';
 			progress = 0;
+			detail = '';
+			slow = false;
 		}
 	}
 
@@ -214,11 +244,18 @@
 
 	{#if busy}
 		<div class="status">
-			<span>{stageLabel[stage]}</span>
+			<span>{detail || stageLabel[stage]}</span>
 			{#if stage === 'detecting'}
 				<progress max="1" value={progress}></progress>
+				<span class="pct">{Math.round(progress * 100)}%</span>
 			{/if}
 		</div>
+		{#if slow}
+			<p class="msg dim">
+				Still going. Your browser may be running the detector without GPU
+				acceleration, which is much slower — a long take can take several minutes.
+			</p>
+		{/if}
 	{/if}
 
 	<div class="row settings">
@@ -313,6 +350,10 @@
 		flex: 1;
 		height: 4px;
 		accent-color: var(--accent);
+	}
+	.pct {
+		font-variant-numeric: tabular-nums;
+		flex: none;
 	}
 	.settings {
 		font-size: var(--text-xs);

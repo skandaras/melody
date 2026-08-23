@@ -46,6 +46,11 @@ export interface LoopOptions {
 
 export type LoopEvent =
 	| { type: 'iteration'; n: number }
+	/** A fragment of prose as it arrives. Many per iteration. */
+	| { type: 'delta'; text: string }
+	/** The model is thinking. Carries no text when reasoning is hidden. */
+	| { type: 'reasoning'; text: string }
+	/** The complete prose for an iteration, once it has finished. */
 	| { type: 'text'; text: string }
 	| { type: 'tool'; name: string; ok: boolean; detail?: string }
 	| { type: 'usage'; usage: Usage };
@@ -88,9 +93,13 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		iterations = i + 1;
 		opts.onEvent?.({ type: 'iteration', n: iterations });
 
-		let completion: Completion;
+		// Streamed rather than awaited whole: a turn can take the better part of
+		// a minute, and without deltas the panel has nothing to show but a step
+		// number. The completion still arrives intact on the final chunk, so
+		// everything downstream is unchanged.
+		let completion: Completion | null = null;
 		try {
-			completion = await opts.adapter.complete({
+			for await (const chunk of opts.adapter.stream({
 				messages,
 				tools,
 				toolChoice: 'auto',
@@ -98,10 +107,23 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 				effort: opts.effort,
 				reasoning: opts.reasoning,
 				signal: opts.signal
-			});
+			})) {
+				if (chunk.type === 'content') opts.onEvent?.({ type: 'delta', text: chunk.text });
+				else if (chunk.type === 'reasoning')
+					opts.onEvent?.({ type: 'reasoning', text: chunk.text });
+				else completion = chunk.completion;
+			}
 		} catch (err) {
 			if (opts.signal?.aborted) return result('aborted');
 			throw err;
+		}
+
+		// A stream that ends without a `done` chunk is a transport fault, not an
+		// empty answer — treating it as "the model said nothing" would silently
+		// discard a turn the user paid for.
+		if (!completion) {
+			warnings.push('The model stream ended without a result.');
+			return result('truncated');
 		}
 
 		addUsage(usage, completion.usage);
