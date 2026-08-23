@@ -36,10 +36,9 @@ const noteInputSchema = {
 		dur: { type: 'integer', minimum: 1, description: 'Length in ticks. 480=crotchet, 240=quaver, 960=minim.' },
 		pitches: {
 			type: 'array',
-			minItems: 1,
 			items: { type: 'string' },
 			description:
-				'Note names with octave, e.g. ["C4"] for a single note or ["C4","E4","G4"] for a chord. Middle C is C4.'
+				'Note names with octave, e.g. ["C4"] for a single note or ["C4","E4","G4"] for a chord. Middle C is C4. An empty array writes a rest of the given length.'
 		},
 		vel: { type: 'integer', minimum: 1, maximum: 127, description: 'MIDI velocity. Default 80.' },
 		artic: { type: 'array', items: { type: 'string' } },
@@ -50,7 +49,17 @@ const noteInputSchema = {
 	additionalProperties: false
 };
 
-function toNote(input: NoteInput, ctx: OpContext): Note | null {
+function toEvent(input: NoteInput, ctx: OpContext): ScoreEvent | null {
+	const tick = Math.max(0, Math.round(input.tick));
+	const dur = Math.max(1, Math.round(input.dur));
+
+	// An explicitly empty pitch list is a rest. Silence is notated, not merely
+	// absent — a bar of nothing and a bar of rests print differently, and until
+	// now neither the editor nor the model had any way to write one.
+	if (Array.isArray(input.pitches) && input.pitches.length === 0) {
+		return { id: ctx.ids.next('rest'), kind: 'rest', tick, dur };
+	}
+
 	const pitches = input.pitches
 		.map((p) => (typeof p === 'number' ? clampMidi(p) : parseSpelling(p)))
 		.filter((m): m is number => m !== null)
@@ -58,16 +67,16 @@ function toNote(input: NoteInput, ctx: OpContext): Note | null {
 			midi,
 			spell: typeof input.pitches[i] === 'string' ? (input.pitches[i] as string) : undefined
 		}));
-	// A note with no parseable pitch is a rest at best and a corruption at
-	// worst — drop it rather than write a note with an empty pitches array,
-	// which every downstream consumer assumes cannot happen.
+	// Pitches that were supplied but none of which parsed is a corruption, not a
+	// rest — drop it rather than write a note with an empty pitches array, which
+	// every downstream consumer assumes cannot happen.
 	if (!pitches.length) return null;
 
 	return {
 		id: ctx.ids.next('note'),
 		kind: 'note',
-		tick: Math.max(0, Math.round(input.tick)),
-		dur: Math.max(1, Math.round(input.dur)),
+		tick,
+		dur,
 		pitches,
 		vel: clampVel(input.vel ?? 80),
 		artic: input.artic?.length ? (input.artic as Note['artic']) : undefined,
@@ -98,13 +107,13 @@ export const insertNotes: OpDef<{ partId: string; voiceId?: string; notes: NoteI
 		if (!voice) return res;
 
 		for (const input of args.notes) {
-			const note = toNote(input, ctx);
-			if (!note) continue;
-			voice.events.push(note);
-			res.added.push(note.id);
+			const event = toEvent(input, ctx);
+			if (!event) continue;
+			voice.events.push(event);
+			res.added.push(event.id);
 		}
 		sortVoice(voice.events);
-		res.note = `Inserted ${res.added.length} note(s) into ${part.name}`;
+		res.note = `Inserted ${res.added.length} event(s) into ${part.name}`;
 		return res;
 	}
 };
@@ -179,10 +188,10 @@ export const replaceRange: OpDef<{
 		voice.events = kept;
 
 		for (const input of args.notes) {
-			const note = toNote(input, ctx);
-			if (!note) continue;
-			voice.events.push(note);
-			res.added.push(note.id);
+			const event = toEvent(input, ctx);
+			if (!event) continue;
+			voice.events.push(event);
+			res.added.push(event.id);
 		}
 		sortVoice(voice.events);
 		res.note = `Replaced ticks ${args.startTick}-${args.endTick} in ${part.name} (${res.removed.length} out, ${res.added.length} in)`;

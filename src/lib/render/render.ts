@@ -62,9 +62,36 @@ export interface NoteHit {
 	height: number;
 }
 
+/**
+ * Where one measure of one part was actually drawn.
+ *
+ * Recorded during the render rather than recomputed afterwards, because the
+ * only authority on where VexFlow put a stave line is VexFlow. Deriving it
+ * from staveHeight would be a second implementation of the same thing, and the
+ * two would disagree the moment a stave gained a clef change or an extra
+ * modifier — which is exactly when clicking the wrong pitch is hardest to
+ * explain.
+ */
+export interface StaveBox {
+	partId: string;
+	/** Index into score.parts, so a caller can find the part without a lookup. */
+	partIndex: number;
+	clef: string;
+	/** Left edge and width of the notes area, past any clef and key signature. */
+	x: number;
+	width: number;
+	/** y of the top stave line, and the gap between adjacent lines. */
+	topLineY: number;
+	lineSpacing: number;
+	startTick: number;
+	endTick: number;
+}
+
 export interface RenderResult {
 	layout: ScoreLayout;
 	hits: NoteHit[];
+	/** Every drawn measure, for turning a click back into a position. */
+	staves: StaveBox[];
 	width: number;
 	height: number;
 }
@@ -175,6 +202,7 @@ export function renderScore(
 	ctx.setStrokeStyle(opts.colors.notation);
 
 	const hits: NoteHit[] = [];
+	const staveBoxes: StaveBox[] = [];
 	const parts = score.parts.length ? score.parts : [];
 
 	for (const system of layout.systems) {
@@ -203,6 +231,20 @@ export function renderScore(
 				stave.setStyle({ fillStyle: opts.colors.notation, strokeStyle: opts.colors.notation });
 				stave.setContext(ctx).draw();
 				staves.push(stave);
+
+				// Ask the stave where it actually put itself, now that its clef and
+				// signatures have been added and it has been drawn.
+				staveBoxes.push({
+					partId: part.id,
+					partIndex,
+					clef: CLEF_MAP[part.clef] ?? 'treble',
+					x: stave.getNoteStartX() * scale,
+					width: Math.max(1, (stave.getNoteEndX() - stave.getNoteStartX()) * scale),
+					topLineY: stave.getYForLine(0) * scale,
+					lineSpacing: stave.getSpacingBetweenLines() * scale,
+					startTick: lm.measure.startTick,
+					endTick: lm.measure.endTick
+				});
 
 				const events = eventsIn(part, lm.measure.startTick, lm.measure.endTick);
 				if (!events.length) continue;
@@ -268,7 +310,13 @@ export function renderScore(
 		});
 	}
 
-	return { layout, hits, width: layout.width * scale, height: layout.height * scale };
+	return {
+		layout,
+		hits,
+		staves: staveBoxes,
+		width: layout.width * scale,
+		height: layout.height * scale
+	};
 }
 
 /** Nearest note to a point, within a tolerance. Used for click selection. */

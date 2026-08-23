@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { hitTest, hitsInRect, renderScore, type NoteHit } from '$lib/render/render';
+	import { hitTest, hitsInRect, renderScore, type NoteHit, type StaveBox } from '$lib/render/render';
+	import { pointToPosition, type Position } from '$lib/render/locate';
 	import type { Score } from '$lib/score/types';
 
 	interface Props {
@@ -7,14 +8,32 @@
 		selected: Set<string>;
 		diff?: { added: string[]; removed: string[]; changed: string[] } | null;
 		scale?: number;
+		/** In 'add', clicking the stave places a note instead of selecting one. */
+		mode?: 'select' | 'add';
+		/** Snapping for placement. Ignored in select mode. */
+		entry?: { grid: number; triplets: boolean };
 		onselect: (ids: string[], additive: boolean) => void;
+		onplace?: (position: Position) => void;
 	}
 
-	let { score, selected, diff = null, scale = 1, onselect }: Props = $props();
+	let {
+		score,
+		selected,
+		diff = null,
+		scale = 1,
+		mode = 'select',
+		entry = { grid: 16, triplets: false },
+		onselect,
+		onplace
+	}: Props = $props();
 
 	let host = $state<HTMLDivElement | null>(null);
 	let width = $state(900);
 	let hits: NoteHit[] = [];
+	let staves: StaveBox[] = [];
+
+	/** Where a click would land right now, drawn as a ghost notehead. */
+	let ghost = $state<{ x: number; y: number; midi: number } | null>(null);
 
 	// Rubber-band state. Kept as plain locals rather than $state because they
 	// change on every pointermove and only the overlay rect needs to react.
@@ -52,6 +71,7 @@
 			colors: colors()
 		});
 		hits = result.hits;
+		staves = result.staves;
 	}
 
 	// Redraw whenever anything visible changes. A full redraw is cheap at these
@@ -81,9 +101,27 @@
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 	}
 
+	/** Where a point maps to, for both the ghost and the click that follows. */
+	function locate(x: number, y: number) {
+		return pointToPosition(staves, score, x, y, {
+			grid: entry.grid,
+			triplets: entry.triplets
+		});
+	}
+
 	function onpointerdown(e: PointerEvent) {
 		if (!host || e.button !== 0) return;
 		const { x, y } = localPoint(e);
+
+		if (mode === 'add') {
+			const position = locate(x, y);
+			// Outside every stave: not a placement, and not a selection either.
+			// Silently doing nothing is right — the ghost already showed that
+			// there was nowhere to put it.
+			if (position) onplace?.(position);
+			return;
+		}
+
 		const hit = hitTest(hits, x, y);
 
 		if (hit) {
@@ -99,12 +137,35 @@
 	}
 
 	function onpointermove(e: PointerEvent) {
+		if (mode === 'add') {
+			const { x, y } = localPoint(e);
+			const position = locate(x, y);
+			const box = position ? staves.find((b) => b.partId === position.partId && x >= b.x - b.lineSpacing && x <= b.x + b.width + b.lineSpacing) : null;
+			ghost =
+				position && box
+					? {
+							// Snap the ghost to where the note will actually go, not to
+							// the pointer — otherwise it promises a precision the grid
+							// will not honour.
+							x: box.x + ((position.tick - box.startTick) / (box.endTick - box.startTick)) * box.width,
+							y: box.topLineY + (position.step * box.lineSpacing) / 2,
+							midi: position.midi
+						}
+					: null;
+			return;
+		}
+
 		if (!dragging || !band) return;
 		const { x, y } = localPoint(e);
 		band = { ...band, x2: x, y2: y };
 	}
 
+	function onpointerleave() {
+		ghost = null;
+	}
+
 	function onpointerup(e: PointerEvent) {
+		if (mode === 'add') return;
 		if (!dragging || !band) return;
 		dragging = false;
 		const { x1, y1, x2, y2 } = band;
@@ -131,7 +192,15 @@
 		{onpointerdown}
 		{onpointermove}
 		{onpointerup}
+		onpointerleave={onpointerleave}
 	></div>
+
+	{#if ghost}
+		<!-- A hollow head at the exact spot the note will land. Placement is the
+		     one interaction where guessing wrong is silent, so show the answer
+		     before the click rather than after. -->
+		<div class="ghost" style:left="{ghost.x}px" style:top="{ghost.y}px" aria-hidden="true"></div>
+	{/if}
 
 	{#if band}
 		<div
@@ -155,6 +224,17 @@
 	.canvas {
 		touch-action: pan-y;
 		cursor: crosshair;
+	}
+	.ghost {
+		position: absolute;
+		width: 11px;
+		height: 8px;
+		margin: -4px 0 0 -5px;
+		border: 1.5px solid var(--accent);
+		border-radius: 50%;
+		transform: rotate(-20deg);
+		pointer-events: none;
+		opacity: 0.85;
 	}
 	.canvas :global(svg) {
 		display: block;

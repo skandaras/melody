@@ -156,6 +156,35 @@ describe('operations', () => {
 		expect(resolveSelection(del.score, {})).toHaveLength(4);
 	});
 
+	it('writes a rest when the pitch list is explicitly empty', () => {
+		const s = fixture();
+		const partId = s.parts[0].id;
+		const r = applyOps(s, [
+			{ op: 'insert_notes', args: { partId, notes: [{ tick: 1920, dur: 960, pitches: [] }] } }
+		]);
+
+		expect(r.diff.added).toHaveLength(1);
+		const event = r.score.parts[0].voices[0].events.find((e) => e.id === r.diff.added[0]);
+		expect(event?.kind).toBe('rest');
+		expect(event?.dur).toBe(960);
+
+		// A rest has to survive the validator too — it is what every load and
+		// every clip insert passes through, and it drops what it cannot place.
+		const revalidated = validateScore(r.score);
+		expect(revalidated.score?.parts[0].voices[0].events.some((e) => e.kind === 'rest')).toBe(true);
+	});
+
+	it('drops a note whose pitches were supplied but unparseable', () => {
+		const s = fixture();
+		const partId = s.parts[0].id;
+		// Distinct from the empty-list case above: this is corruption, not
+		// silence, and writing a note with no pitches would break every consumer.
+		const r = applyOps(s, [
+			{ op: 'insert_notes', args: { partId, notes: [{ tick: 0, dur: 480, pitches: ['H9'] }] } }
+		]);
+		expect(r.diff.added).toHaveLength(0);
+	});
+
 	it('collapses a note added and removed within one batch', () => {
 		const s = fixture();
 		const partId = s.parts[0].id;
