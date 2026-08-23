@@ -1,4 +1,4 @@
-# melody
+# Melody
 
 Self-hosted AI music composition. Hum, sing, play or upload something; melody
 turns it into real notation you can edit, restyle, hear and export.
