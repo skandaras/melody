@@ -318,6 +318,7 @@
 				disabled={busy}
 				settings={data.transcribe}
 				countInBars={data.audio.countInBars}
+				recordingUrl={data.recordingUrl}
 			/>
 		</section>
 

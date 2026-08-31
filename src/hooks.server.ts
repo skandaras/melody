@@ -9,6 +9,7 @@ import {
 import { ensureDataDirs, runMigrations } from '$lib/server/db';
 import { seedTaskConfigs, seedControls, seedStyleSkills } from '$lib/server/bootstrap';
 import { sweepRetention } from '$lib/server/retention';
+import { sweepRecordings } from '$lib/server/recordings';
 import { provisionUser } from '$lib/server/users';
 
 // Module scope: this runs once, before any request is served, so no handler
@@ -20,9 +21,14 @@ seedControls();
 seedStyleSkills();
 // Prune the activity and usage logs once now, then daily — the same deal the
 // revision pruner gets per commit, for the two tables that have no commit of
-// their own.
-sweepRetention();
-setInterval(sweepRetention, 24 * 60 * 60 * 1000).unref?.();
+// their own. The recording sweep rides along: it is also a daily job, and its
+// work is usually nothing because the client deletes its own uploads.
+const sweep = () => {
+	sweepRetention();
+	void sweepRecordings();
+};
+sweep();
+setInterval(sweep, 24 * 60 * 60 * 1000).unref?.();
 
 /**
  * Paths served without an identity.

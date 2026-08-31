@@ -16,6 +16,8 @@
 	interface Props {
 		/** Receives the finished fragment. Resolves once it has been saved. */
 		ontranscribed: (fragment: Score, label: string) => Promise<void>;
+		/** Where a kept take can be uploaded to, when retention says keep. */
+		recordingUrl?: string;
 		disabled?: boolean;
 		/** Detection thresholds and auto-cleanup, from Admin → Transcription. */
 		settings?: {
@@ -31,6 +33,7 @@
 	let {
 		ontranscribed,
 		disabled = false,
+		recordingUrl = undefined,
 		settings = {
 			noteThreshold: 0.3,
 			onsetThreshold: 0.5,
@@ -239,6 +242,7 @@
 
 			stage = 'saving';
 			await ontranscribed(score, label);
+			await uploadRecording(source);
 
 			hint = bpm
 				? `${noteCount} notes at ${tempo.bpm} bpm.`
@@ -256,6 +260,25 @@
 			progress = 0;
 			detail = '';
 			slow = false;
+		}
+	}
+
+	/**
+	 * Keep the take, when retention says so.
+	 *
+	 * Uploaded after the transcription has landed, and best-effort: a failed
+	 * upload must not read as a failed transcription, since the notes are
+	 * already saved.
+	 */
+	async function uploadRecording(source: Blob | File) {
+		if (!recordingUrl) return;
+		try {
+			const form = new FormData();
+			form.append('file', source);
+			const res = await fetch(recordingUrl, { method: 'POST', body: form });
+			if (!res.ok) throw new Error(await res.text());
+		} catch (e) {
+			hint = `${hint} (take not kept: ${e instanceof Error ? e.message : 'upload failed'})`;
 		}
 	}
 

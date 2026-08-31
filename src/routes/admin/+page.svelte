@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import TaskConfig from '$lib/components/TaskConfig.svelte';
+	import UsageTab from '$lib/components/admin/UsageTab.svelte';
+	import ControlsTab from '$lib/components/admin/ControlsTab.svelte';
+	import SkillsTab from '$lib/components/admin/SkillsTab.svelte';
 	import type { CoreTask } from '$lib/ai/config';
 	import type { PageServerData } from './$types';
 
@@ -29,6 +32,7 @@
 	let models = $state(untrack(() => data.models));
 	let settings = $state(untrack(() => ({ ...data.settings })));
 	let tasks = $state(untrack(() => data.tasks));
+	let tab = $state<'ai' | 'usage' | 'controls' | 'skills'>('ai');
 	let history = $state<{ task: CoreTask; versions: PromptVersion[] } | null>(null);
 
 	$effect(() => {
@@ -170,6 +174,14 @@
 	{#if error}<p class="msg err">{error}</p>{/if}
 	{#if notice}<p class="msg ok">{notice}</p>{/if}
 
+	<nav class="tabs" aria-label="Admin sections">
+		<button class="tab" class:on={tab === 'ai'} onclick={() => (tab = 'ai')}>AI</button>
+		<button class="tab" class:on={tab === 'usage'} onclick={() => (tab = 'usage')}>Usage</button>
+		<button class="tab" class:on={tab === 'controls'} onclick={() => (tab = 'controls')}>Controls</button>
+		<button class="tab" class:on={tab === 'skills'} onclick={() => (tab = 'skills')}>Skills</button>
+	</nav>
+
+	{#if tab === 'ai'}
 	<section>
 		<h2>OpenRouter</h2>
 		<p class="hint">
@@ -326,6 +338,13 @@
 			{/each}
 		</div>
 	</section>
+	{:else if tab === 'usage'}
+		<UsageTab initial={data.usage} />
+	{:else if tab === 'controls'}
+		<ControlsTab initial={data.controls} />
+	{:else if tab === 'skills'}
+		<SkillsTab initial={data.skills} />
+	{/if}
 
 	{#if history}
 		<!-- Bound once so the callbacks below don't have to re-narrow a value
@@ -376,6 +395,29 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+	}
+
+	/* The four admin sections share one page load; tabs keep each one scannable
+	   without turning them into routes that would re-fetch on every switch. */
+	.tabs {
+		display: flex;
+		gap: var(--space-1);
+		border-bottom: 1px solid var(--border);
+	}
+	.tab {
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--fg-dim);
+		padding: var(--space-2) var(--space-3);
+		cursor: pointer;
+		font-size: var(--text-sm);
+		margin-bottom: -1px;
+	}
+	.tab.on {
+		color: var(--fg);
+		border-bottom-color: var(--accent);
+		font-weight: 600;
 	}
 	.warn {
 		color: var(--diff-change);
