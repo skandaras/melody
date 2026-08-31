@@ -16,8 +16,10 @@
 	interface Props {
 		score: Score;
 		soundfontUrl: string;
+		/** Offline render rate, from Admin → Audio. */
+		renderSampleRate: number;
 	}
-	let { score, soundfontUrl }: Props = $props();
+	let { score, soundfontUrl, renderSampleRate }: Props = $props();
 
 	let working = $state('');
 	let error = $state('');
@@ -55,7 +57,10 @@
 
 	const exportWav = () =>
 		run('wav', async () =>
-			downloadBlob(await renderScoreToWav(score, soundfontUrl), safeFilename(score.title, 'wav'))
+			downloadBlob(
+				await renderScoreToWav(score, soundfontUrl, { sampleRate: renderSampleRate }),
+				safeFilename(score.title, 'wav')
+			)
 		);
 </script>
 

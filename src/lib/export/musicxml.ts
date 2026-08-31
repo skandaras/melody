@@ -279,6 +279,17 @@ function eventXml(event: ScoreEvent, ppq: number, fifths: number): string[] {
 		out.push('        <voice>1</voice>', `        <type>${type}</type>`);
 		for (let d = 0; d < dots; d++) out.push('        <dot/>');
 
+		// Lyrics attach to the first note of a chord; syllable separation is
+		// the user's business, so each one is emitted as a complete syllable.
+		if (index === 0 && note.lyric) {
+			out.push(
+				'        <lyric>',
+				'          <syllabic>single</syllabic>',
+				`          <text>${escapeXml(note.lyric)}</text>`,
+				'        </lyric>'
+			);
+		}
+
 		const notations = notationsXml(note, tie, index === 0);
 		out.push(...notations);
 		out.push('      </note>');

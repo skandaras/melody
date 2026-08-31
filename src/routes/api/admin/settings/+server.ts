@@ -79,9 +79,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			noteThreshold: num(body.transcribe.noteThreshold, current.noteThreshold, 0.05, 0.95),
 			onsetThreshold: num(body.transcribe.onsetThreshold, current.onsetThreshold, 0.05, 0.95),
 			minNoteMs: num(body.transcribe.minNoteMs, current.minNoteMs, 0, 5000),
-			quantiseGrid: [4, 8, 16, 32].includes(Number(body.transcribe.quantiseGrid))
-				? Number(body.transcribe.quantiseGrid)
-				: current.quantiseGrid,
+			// Ticks per grid unit (480 = crotchet), not a denominator — the same
+			// unit the quantise control's grid list uses.
+			quantiseGrid: num(body.transcribe.quantiseGrid, current.quantiseGrid, 1, 1920),
 			autoCleanup: bool(body.transcribe.autoCleanup, current.autoCleanup)
 		});
 	}

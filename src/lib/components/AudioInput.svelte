@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Recorder, decodeToMono, normalise, peakLevel } from '$lib/audio/capture';
+	import { playCountIn, Recorder, decodeToMono, normalise, peakLevel, type CountIn } from '$lib/audio/capture';
 	import { detectNotesInWorker } from '$lib/audio/transcribe-client';
 	import { notesToScore } from '$lib/audio/transcribe';
-	import type { Score } from '$lib/score/types';
+	import { PPQ, type Score } from '$lib/score/types';
 
 	/**
 	 * Sing, play or drop a file; get notation.
@@ -41,7 +41,7 @@
 		countInBars = 0
 	}: Props = $props();
 
-	type Stage = 'idle' | 'recording' | 'decoding' | 'detecting' | 'saving';
+	type Stage = 'idle' | 'counting' | 'recording' | 'decoding' | 'detecting' | 'saving';
 
 	let stage = $state<Stage>('idle');
 	let progress = $state(0);
@@ -65,6 +65,8 @@
 	let watchdog: ReturnType<typeof setTimeout> | null = null;
 	let controller: AbortController | null = null;
 	let countIn: CountIn | null = null;
+	/** The AudioContext the count-in clicks run through, so cancel can close it. */
+	let countInCtx: AudioContext | null = null;
 	let fileInput: HTMLInputElement | null = $state(null);
 
 	/**
@@ -82,9 +84,49 @@
 		return Number.isFinite(n) && n >= 20 && n <= 400 ? n : undefined;
 	});
 
+	// The admin grid is a default, not a rule: it seeds the selector and the
+	// user's own choice then wins until the settings object changes (a
+	// navigation), mirroring how the score page re-seeds from its load.
+	$effect(() => {
+		// Stored in ticks per grid unit; the selector works in denominators.
+		grid = settings.quantiseGrid > 0 ? Math.round((PPQ * 4) / settings.quantiseGrid) : 16;
+	});
+
+	// Leaving the page mid-count-in must not leave clicks ringing and a
+	// microphone about to open for a component that no longer exists.
+	$effect(() => () => cancel());
+
 	async function startRecording() {
 		error = '';
 		hint = '';
+		try {
+			if (countInBars > 0) {
+				// Creating the AudioContext inside this click handler is what
+				// unlocks it — there is no second user gesture coming.
+				stage = 'counting';
+				countInCtx = new AudioContext();
+				countIn = playCountIn(countInBars, bpm ?? 120, countInCtx, beginCapture);
+				return;
+			}
+			await beginCapture();
+		} catch (e) {
+			recorder = null;
+			countInCtx?.close();
+			countInCtx = null;
+			stage = 'idle';
+			error =
+				e instanceof DOMException && e.name === 'NotAllowedError'
+					? 'Microphone access was refused. Allow it in your browser settings, or drop an audio file instead.'
+					: e instanceof Error
+						? e.message
+						: 'Could not start recording.';
+		}
+	}
+
+	/** Opens the microphone once the count-in clicks have landed — or at once
+	 *  when there is none. Kept separate so both paths share the error mapping. */
+	async function beginCapture() {
+		countIn = null;
 		try {
 			recorder = new Recorder();
 			await recorder.start();
@@ -99,6 +141,10 @@
 					: e instanceof Error
 						? e.message
 						: 'Could not start recording.';
+		} finally {
+			countInCtx?.close();
+			countInCtx = null;
+			if (stage !== 'recording') stage = 'idle';
 		}
 	}
 
@@ -120,6 +166,10 @@
 		clearTimer();
 		if (watchdog) clearTimeout(watchdog);
 		watchdog = null;
+		countIn?.cancel();
+		countIn = null;
+		countInCtx?.close();
+		countInCtx = null;
 		recorder?.cancel();
 		recorder = null;
 		controller?.abort();
@@ -156,6 +206,12 @@
 			watchdog = setTimeout(() => (slow = true), SLOW_AFTER_MS);
 			const notes = await detectNotesInWorker(normalise(decoded.samples), {
 				signal: controller.signal,
+				// Admin-configured detector thresholds. The model works in frames of
+				// roughly 11ms, so the shortest-kept-note setting converts here
+				// rather than leaking audio internals into the settings table.
+				onsetThreshold: settings.onsetThreshold,
+				frameThreshold: settings.noteThreshold,
+				minNoteFrames: Math.max(1, Math.round(settings.minNoteMs / 11)),
 				onProgress: (p) => {
 					if (p.phase === 'model') {
 						detail = 'Loading the detection model…';
@@ -218,6 +274,7 @@
 
 	const stageLabel: Record<Stage, string> = {
 		idle: '',
+		counting: 'Count-in…',
 		recording: 'Recording',
 		decoding: 'Reading audio…',
 		detecting: 'Finding notes…',
@@ -242,6 +299,9 @@
 			<button class="btn rec on" onclick={stopRecording}>■ Stop</button>
 			<span class="elapsed">{fmt(elapsed)}</span>
 			<button class="btn" onclick={cancel}>Discard</button>
+		{:else if stage === 'counting'}
+			<span class="elapsed">Count-in…</span>
+			<button class="btn" onclick={cancel}>Cancel</button>
 		{:else}
 			<button class="btn rec" onclick={startRecording} disabled={disabled || busy}>● Record</button>
 			<button class="btn" onclick={() => fileInput?.click()} disabled={disabled || busy}>
