@@ -56,6 +56,11 @@ export class Player {
 	/** A thunk, not a string: the soundfont is an admin setting, so it must be
 	 *  read when it is fetched rather than captured when the player is built. */
 	private soundfontUrl: () => string;
+	/** Master output level 0..1. The live mixer's per-part CC7 values scale
+	 *  against this at the output node, so part balance and overall loudness
+	 *  stay independent knobs. */
+	private masterVolume = 0.85;
+	private gain: GainNode | null = null;
 
 	state: TransportState = {
 		ready: false,
@@ -105,13 +110,18 @@ export class Player {
 
 			const sf = await this.loadSoundfont();
 			await synth.soundBankManager.addSoundBank(sf, 'main');
-			synth.connect(ctx.destination);
+			// A gain node between synth and destination is the master volume: CC7
+			// controls each channel's balance inside the synth, and this scales
+			// the whole mix once, at the output.
+			this.gain = ctx.createGain();
+			this.gain.gain.value = this.masterVolume;
+			synth.connect(this.gain);
+			this.gain.connect(ctx.destination);
 
 			this.ctx = ctx;
 			this.synth = synth;
 			this.sequencer = new Sequencer(synth);
-			this.emit({ ready: true, loading: false, loadProgress: null });
-		} catch (err) {
+			this.emit({ ready: true, loading: false, loadProgress: null });		} catch (err) {
 			this.emit({
 				loading: false,
 				ready: false,
@@ -207,6 +217,16 @@ export class Player {
 	/** Live mixer: 0..1 per MIDI channel, applied as CC7. */
 	setChannelVolume(channel: number, volume: number): void {
 		this.synth?.controllerChange(channel, 7, Math.round(Math.max(0, Math.min(1, volume)) * 127));
+	}
+
+	/** Overall loudness, 0..1. Applies immediately, including mid-playback. */
+	setMasterVolume(volume: number): void {
+		this.masterVolume = Math.max(0, Math.min(1, volume));
+		if (this.gain) this.gain.gain.value = this.masterVolume;
+	}
+
+	getMasterVolume(): number {
+		return this.masterVolume;
 	}
 
 	private track() {

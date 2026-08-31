@@ -142,8 +142,9 @@ Two groups are worth creating, though only the second is read by the app:
   `*.starbasehome.net` rule is the access policy you want; melody works
   either way.
 - **`melody-admins`** — read by *melody*, via `ADMIN_GROUP`. Members get
-  `/admin`: the OpenRouter key, model curation, and defaults. Everyone else
-  gets 403 on both the page and its API.
+  `/admin`: the OpenRouter key, model curation, defaults, usage and budget,
+  control and skill editing. Everyone else gets 403 on both the page and its
+  API.
 
 Add yourself to both in `users_database.yml`, then restart Authelia.
 
@@ -201,7 +202,8 @@ controls work and nothing else does.
    by default, because a model that can't call tools can't edit a score and
    fails in a way that's hard to read.
 3. **Defaults** — pick the primary model, ordered fallbacks, token ceiling and
-   budget cap. **Nothing is preselected.** melody will not choose a vendor, or
+   budget cap, enforced before each AI turn (see Configuration). **Nothing is
+   preselected.** melody will not choose a vendor, or
    spend your credit, on your behalf; until you pick one, anything that calls a
    model says so and names where to fix it.
 4. **Tasks** — optional, but this is where the money is. Each of the eight jobs
@@ -218,7 +220,8 @@ Three ways forward:
 - **Audio in**, in the left rail — record or drop a file. Transcription creates
   the part for you. This is the intended path and the one worth testing first:
   hum eight bars, and you should get notation back without a single call to
-  OpenRouter.
+  OpenRouter. A count-in is available for recording, and if `keepRecordings`
+  is on in admin, the take itself is kept beside the score.
 - **Add part**, also in the left rail — start from an empty piano stave.
 - **Add note**, in the toolbar above the score — switch the pointer to Add,
   pick a note value, and click the stave. How you write something from nothing
@@ -254,7 +257,11 @@ since nothing else is encrypted with it.
 
 Model choice, iteration and op caps, budget, transcription thresholds,
 retention and audio settings are all admin-panel settings, not environment
-variables. They are deliberately not deploy-time decisions.
+variables. They are deliberately not deploy-time decisions. The budget is
+enforced, not just displayed: once spend over the period passes the cap, AI
+turns and AI-tier controls refuse until it is raised or the window rolls
+over. A take reaches the server only while `keepRecordings` says so;
+everything else stays in the browser by design.
 
 ---
 
@@ -263,7 +270,7 @@ variables. They are deliberately not deploy-time decisions.
 Everything lives in the `melody-data` volume:
 
 ```
-melody.db          SQLite (WAL) — scores, revisions, clips, users, settings, usage
+melody.db          SQLite (WAL) — scores, revisions, clips, users, settings, usage, events
 melody.key         generated master key, if SECRET_KEY is unset
 recordings/        source audio, if retention keeps it
 skills/style/      style skills as markdown — six seeded, add your own
@@ -338,11 +345,16 @@ CI runs `check`, `test` and `build` on every push, then publishes
 
 ## Status
 
-Working: capture and transcription, notation editing, the ops registry,
-playback and mixing, the AI layer and agent loop, all three control tiers,
-PDF/MusicXML/MIDI/WAV export, the clip library, per-user theming, and the
-admin panel's provider and model management.
+Working: capture and transcription with optional count-in, notation editing,
+the ops registry, playback and mixing, the AI layer and agent loop, all three
+control tiers, PDF/MusicXML/MIDI/WAV export, lyrics (rendered under the stave
+and written into MusicXML), the clip library, per-user theming, revision
+history with undo and restore, and the full admin panel — provider and model
+management, usage and budget reporting with enforcement, controls CRUD, and
+skill editing.
 
-Not built yet: the remaining admin tabs — usage and budget reporting,
-controls CRUD, and skill editing. Their data is already recorded; only the UI
-is missing, and everything they would configure has a working default.
+Known limits: the budget check runs before a turn starts, so a single
+in-flight turn can overshoot the cap — OpenRouter reports the true cost only
+afterwards, and the next turn is the one that sees it. The events table
+records finished jobs only; it exists as the audit trail behind the usage
+tab, not as a live feed.

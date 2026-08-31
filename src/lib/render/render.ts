@@ -1,5 +1,6 @@
 import {
 	Accidental,
+	Annotation,
 	Articulation,
 	Beam,
 	Dot,
@@ -140,6 +141,16 @@ function buildNote(score: Score, part: Part, event: ScoreEvent, opts: RenderOpti
 		if (s.accidental) staveNote.addModifier(new Accidental(s.accidental), i);
 	});
 	for (let i = 0; i < dots; i++) Dot.buildAndAttach([staveNote], { all: true });
+
+	// One syllable under the notehead. CENTER_STEM hangs it from the stem,
+	// which keeps the text clear of the stave while staying attached to its
+	// note; BOTTOM would push it below the stave's own lower margin.
+	if (note.lyric) {
+		const ann = new Annotation(note.lyric);
+		ann.setVerticalJustification(Annotation.VerticalJustify.CENTER_STEM);
+		ann.setFont({ family: 'Times', size: 11, style: 'normal' });
+		staveNote.addModifier(ann, 0);
+	}
 
 	for (const a of note.artic ?? []) {
 		const code = ARTICULATION_CODES[a];

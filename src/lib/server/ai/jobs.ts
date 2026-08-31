@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { jobs, usageLog, type JobStatus } from '../db/schema.js';
+import { recordJobEvent } from '../events.js';
 import type { Usage } from './types.js';
 
 /**
@@ -110,6 +111,9 @@ export function finishJob(jobId: string, status: JobStatus, error?: string): voi
 		.set({ status, error: error ?? null, finishedAt: new Date() })
 		.where(eq(jobs.id, jobId))
 		.run();
+	// The activity log is how the usage tab shows what ran and what failed;
+	// recording it here means every entry point gets it for free.
+	recordJobEvent({ jobId, status, error });
 }
 
 /**

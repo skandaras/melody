@@ -8,6 +8,7 @@ import { emptyScore, type Score } from '$lib/score/types';
 import { coerceScore } from '$lib/score/validate';
 import { db } from './db/index.js';
 import { revisions, scores, type RevisionSource } from './db/schema.js';
+import { deleteScoreRecordings } from './recordings.js';
 import { DEFAULT_RETENTION, getSetting, type RetentionSettings } from './settings.js';
 
 /**
@@ -96,6 +97,7 @@ export function deleteScore(scoreId: string, userId: string): void {
 	loadScore(scoreId, userId);
 	db.delete(revisions).where(eq(revisions.scoreId, scoreId)).run();
 	db.delete(scores).where(eq(scores.id, scoreId)).run();
+	void deleteScoreRecordings(scoreId);
 }
 
 // --------------------------------------------------------------- revisions

@@ -1,4 +1,5 @@
 import type { CoreTask } from '../db/schema.js';
+import { checkBudget } from '../budget.js';
 import { commitOps, loadScore } from '../scores.js';
 import { DEFAULT_AI, DEFAULT_MODELS, getSetting, type AiSettings, type ModelSettings } from '../settings.js';
 import { buildEditContext } from './context.js';
@@ -36,6 +37,10 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 	// immediate error with a useful message rather than a job created only to
 	// fail a moment later.
 	const resolved = resolveTask(task, opts.origin);
+	// Then the budget, for the same reason: refusing spend here is the whole
+	// point of the cap, and it is cheaper than a job that only fails when the
+	// first API call reports the account is over.
+	checkBudget();
 
 	const { id: jobId, abort } = createJob({
 		userId: opts.userId,

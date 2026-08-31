@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { Op } from '$lib/score/apply.js';
 import type { Selection } from '$lib/score/types.js';
+import { checkBudget } from '../budget.js';
 import { buildEditContext } from '../ai/context.js';
 import { createJob, emit, finishJob, recordUsage } from '../ai/jobs.js';
 import { runAgentLoop } from '../ai/loop.js';
@@ -87,6 +88,11 @@ export function runControl(opts: RunControlOptions): ControlResult {
 
 	const task: CoreTask = control.kind === 'agent' ? 'orchestrate' : 'control_prompt';
 	const resolved = resolveTask(task, opts.origin);
+	// Code-tier controls return before this point and cost nothing, so only
+	// model-backed controls meet the budget. Checked beside the provider so an
+	// exhausted budget behaves exactly like a missing key: an immediate,
+	// legible refusal before any job exists.
+	checkBudget();
 	const ai = getSetting<AiSettings>('ai', DEFAULT_AI);
 	const models = getSetting<ModelSettings>('models', DEFAULT_MODELS);
 

@@ -9,8 +9,10 @@
 		score: Score;
 		player: PlayerStore;
 		soundfontUrl: string;
+		/** Offline render rate, from Admin → Audio. */
+		renderSampleRate: number;
 	}
-	let { score, player, soundfontUrl }: Props = $props();
+	let { score, player, soundfontUrl, renderSampleRate }: Props = $props();
 
 	const t = $derived(player.transport);
 	const max = $derived(Math.max(t.duration, 0.001));
@@ -40,7 +42,7 @@
 		rendering = true;
 		exportError = '';
 		try {
-			const blob = await renderScoreToWav(score, soundfontUrl);
+			const blob = await renderScoreToWav(score, soundfontUrl, { sampleRate: renderSampleRate });
 			downloadBlob(blob, safeFilename(score.title, 'wav'));
 		} catch (e) {
 			exportError = e instanceof Error ? e.message : String(e);

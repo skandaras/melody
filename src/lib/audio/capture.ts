@@ -189,3 +189,66 @@ export function normalise(samples: Float32Array, maxGain = 12): Float32Array {
 	for (let i = 0; i < samples.length; i++) out[i] = samples[i] * gain;
 	return out;
 }
+// ------------------------------------------------------------------ count-in
+
+/**
+ * An audible count-in: clicks for `bars` bars at `bpm`, then calls back.
+ *
+ * Tempo is what makes a count-in musical rather than cosmetic, so it is
+ * required rather than defaulted — the transcription UI already knows the
+ * tempo the user typed, and the detected tempo only exists after the first
+ * take. Downbeats are accented, the rest are ticks; everything runs through
+ * a Web Audio graph, so no recording is made until the callback fires.
+ */
+export interface CountIn {
+	/** Fires when the last click has played and recording should begin. */
+	done: () => void;
+	/** Stops the clicks immediately; fires `done` only if it had not yet. */
+	cancel: () => void;
+}
+
+export function playCountIn(
+	bars: number,
+	bpm: number,
+	audio: AudioContext,
+	done: () => void
+): CountIn {
+	const beatsPerBar = 4; // Transcription defaults to 4/4; see notesToScore.
+	const beat = 60 / bpm;
+	const total = bars * beatsPerBar;
+	let fired = false;
+	const fireDone = () => {
+		if (fired) return;
+		fired = true;
+		done();
+	};
+
+	void audio.resume();
+
+	const start = audio.currentTime + 0.08;
+	for (let b = 0; b < total; b++) {
+		const t = start + b * beat;
+		const osc = audio.createOscillator();
+		const gain = audio.createGain();
+		// A square wave is a beep; a sine with a fast decay is a click.
+		osc.frequency.value = b % beatsPerBar === 0 ? 1200 : 800;
+		osc.type = 'sine';
+		gain.gain.setValueAtTime(b % beatsPerBar === 0 ? 0.5 : 0.3, t);
+		gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+		osc.connect(gain);
+		gain.connect(audio.destination);
+		osc.start(t);
+		osc.stop(t + 0.09);
+	}
+
+	const lastEnd = start + total * beat;
+	const timeout = setTimeout(fireDone, (lastEnd - audio.currentTime) * 1000);
+	timeout.unref?.();
+
+	return {
+		done: fireDone,
+		// Cancelling stops the callback; the already-scheduled clicks ring out
+		// within a beat, which is shorter and kinder than cutting the graph.
+		cancel: () => clearTimeout(timeout)
+	};
+}

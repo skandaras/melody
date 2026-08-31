@@ -5,6 +5,7 @@
 	import ClipPanel from '$lib/components/ClipPanel.svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
 	import ExportMenu from '$lib/components/ExportMenu.svelte';
+	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
 	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
@@ -25,6 +26,7 @@
 	let title = $state(untrack(() => data.score.title));
 	let loadedId = untrack(() => data.score.id);
 	let selected = $state<Set<string>>(new Set());
+	let revisions = $state(untrack(() => data.revisions));
 	let pendingDiff = $state<{
 		added: string[];
 		removed: string[];
@@ -45,6 +47,7 @@
 		loadedId = data.score.id;
 		score = data.score.doc;
 		title = data.score.title;
+		revisions = data.revisions;
 		selected = new Set();
 		pendingDiff = null;
 		error = '';
@@ -55,7 +58,13 @@
 	// per component. Constructed eagerly rather than inside an effect — nothing
 	// here touches an AudioContext until the first play, so it is safe during
 	// SSR, and the mixer is the parts panel, which should render server-side.
-	const player = new PlayerStore(() => data.soundfontUrl);
+	// Audio settings arrive with the page load and never change without a
+	// reload, so capturing them once is deliberate.
+	// svelte-ignore state_referenced_locally
+	const player = new PlayerStore(() => data.soundfontUrl, {
+		masterVolume: data.audio.masterVolume,
+		renderSampleRate: data.audio.renderSampleRate
+	});
 	$effect(() => () => player.destroy());
 
 	$effect(() => {
@@ -137,6 +146,7 @@
 		try {
 			const r = await post(`/api/scores/${data.score.id}/ops`, { ops, label, source });
 			score = r.doc;
+			await refreshHistory();
 			if (r.errors?.length) error = r.errors.map((e: { reason: string }) => e.reason).join('; ');
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -156,6 +166,38 @@
 			score = r.doc;
 			pendingDiff = null;
 			selected = new Set();
+			await refreshHistory();
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** Re-pull the revision list after anything that could have added one. */
+	async function refreshHistory() {
+		try {
+			const res = await fetch(`/api/scores/${data.score.id}/revisions`);
+			if (res.ok) revisions = (await res.json()).revisions;
+		} catch {
+			// History refresh is cosmetic; the next successful action retries.
+		}
+	}
+
+	/** Restore a revision — undo, redo and history clicks are all this. */
+	async function restore(revisionId: string) {
+		if (busy) return;
+		busy = true;
+		error = '';
+		try {
+			const r = await post(`/api/scores/${data.score.id}/revisions`, {
+				action: 'restore',
+				revisionId
+			});
+			score = r.doc;
+			pendingDiff = null;
+			selected = new Set();
+			await refreshHistory();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -191,6 +233,7 @@
 			});
 			score = r.doc;
 			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Transcribed ${label}` };
+			await refreshHistory();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			throw e;
@@ -211,6 +254,7 @@
 			});
 			score = r.doc;
 			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Inserted ${label}` };
+			await refreshHistory();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			throw e;
@@ -252,6 +296,12 @@
 			void nudge(e.shiftKey ? -12 : -1);
 		} else if (e.key === 'Escape') {
 			selected = new Set();
+		} else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+			e.preventDefault();
+			// The second-newest revision is the state one step back, whatever
+			// created the newest one. Restore is append-only, so pressing it
+			// again steps forward again — undo and redo in one operation.
+			if (revisions.length >= 2) void restore(revisions[1].id);
 		}
 	}
 
@@ -266,7 +316,13 @@
 
 		<section>
 			<h2>Audio in</h2>
-			<AudioInput ontranscribed={acceptTranscription} disabled={busy} />
+			<AudioInput
+				ontranscribed={acceptTranscription}
+				disabled={busy}
+				settings={data.transcribe}
+				countInBars={data.audio.countInBars}
+				recordingUrl={data.recordingUrl}
+			/>
 		</section>
 
 		<section>
@@ -285,6 +341,11 @@
 				{busy}
 				oninsert={insertClip}
 			/>
+		</section>
+
+		<section>
+			<h2>History</h2>
+			<HistoryPanel {revisions} {busy} onrestore={restore} />
 		</section>
 
 		<section>
@@ -322,7 +383,7 @@
 				{/if}
 			</span>
 			<div class="spacer"></div>
-			<ExportMenu {score} soundfontUrl={data.soundfontUrl} />
+			<ExportMenu {score} soundfontUrl={data.soundfontUrl} renderSampleRate={data.audio.renderSampleRate} />
 			<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out"
 				>−</button
 			>
@@ -363,7 +424,7 @@
 			/>
 		</div>
 
-		<Transport {score} {player} soundfontUrl={data.soundfontUrl} />
+		<Transport {score} {player} soundfontUrl={data.soundfontUrl} renderSampleRate={data.audio.renderSampleRate} />
 	</main>
 
 	<aside class="right">
