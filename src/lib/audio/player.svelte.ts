@@ -25,6 +25,8 @@ const IDLE: TransportState = {
 
 export class PlayerStore {
 	transport = $state<TransportState>({ ...IDLE });
+	/** Overall loudness 0..1, seeded from the admin default. */
+	volume = $state(0.85);
 
 	/**
 	 * Solo is deliberately session state, never document state. Muting a part
@@ -39,9 +41,30 @@ export class PlayerStore {
 	#dirty = true;
 	#overrides: MixOverrides = {};
 
-	constructor(soundfontUrl: () => string) {
+	constructor(
+		soundfontUrl: () => string,
+		opts: { masterVolume?: number; renderSampleRate?: number } = {}
+	) {
 		this.#player = new Player(soundfontUrl);
 		this.#off = this.#player.subscribe((s) => (this.transport = s));
+		if (opts.masterVolume != null) {
+			this.volume = Math.max(0, Math.min(1, opts.masterVolume));
+			this.#player.setMasterVolume(this.volume);
+		}
+		this.#renderSampleRate = opts.renderSampleRate ?? 44100;
+	}
+
+	#renderSampleRate = 44100;
+
+	/** The admin-configured rate for offline WAV renders. */
+	get renderSampleRate(): number {
+		return this.#renderSampleRate;
+	}
+
+	/** Set overall loudness; remembered for the life of the page. */
+	setVolume(v: number): void {
+		this.volume = Math.max(0, Math.min(1, v));
+		this.#player.setMasterVolume(this.volume);
 	}
 
 	/** Any edit invalidates what the sequencer holds. Reloading eagerly on every

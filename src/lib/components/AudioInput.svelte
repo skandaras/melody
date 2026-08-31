@@ -17,8 +17,29 @@
 		/** Receives the finished fragment. Resolves once it has been saved. */
 		ontranscribed: (fragment: Score, label: string) => Promise<void>;
 		disabled?: boolean;
+		/** Detection thresholds and auto-cleanup, from Admin → Transcription. */
+		settings?: {
+			noteThreshold: number;
+			onsetThreshold: number;
+			minNoteMs: number;
+			quantiseGrid: number;
+			autoCleanup: boolean
+		};
+		/** Admin-configured count-in, in bars. 0 disables the metronome. */
+		countInBars?: number;
 	}
-	let { ontranscribed, disabled = false }: Props = $props();
+	let {
+		ontranscribed,
+		disabled = false,
+		settings = {
+			noteThreshold: 0.3,
+			onsetThreshold: 0.5,
+			minNoteMs: 70,
+			quantiseGrid: 16,
+			autoCleanup: false
+		},
+		countInBars = 0
+	}: Props = $props();
 
 	type Stage = 'idle' | 'recording' | 'decoding' | 'detecting' | 'saving';
 
@@ -43,6 +64,7 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let watchdog: ReturnType<typeof setTimeout> | null = null;
 	let controller: AbortController | null = null;
+	let countIn: CountIn | null = null;
 	let fileInput: HTMLInputElement | null = $state(null);
 
 	/**
