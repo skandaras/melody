@@ -31,6 +31,8 @@
 	}
 	let { initial }: Props = $props();
 
+	// Seeded once per mount; the page reloads the tab when data changes.
+	// svelte-ignore state_referenced_locally
 	let controls = $state<Control[]>(initial);
 	let openId = $state<string | null>(null);
 	let draft = $state<{ name: string; category: string; icon: string; description: string; promptTemplate: string; systemPrompt: string; defaultParamsText: string } | null>(null);

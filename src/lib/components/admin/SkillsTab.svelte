@@ -21,6 +21,8 @@
 	}
 	let { initial }: Props = $props();
 
+	// Seeded once per mount; the page reloads the tab when data changes.
+	// svelte-ignore state_referenced_locally
 	let skills = $state<Skill[]>(initial);
 	let editingId = $state<string | null>(null);
 	let body = $state('');

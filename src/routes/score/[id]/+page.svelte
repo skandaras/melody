@@ -58,6 +58,9 @@
 	// per component. Constructed eagerly rather than inside an effect — nothing
 	// here touches an AudioContext until the first play, so it is safe during
 	// SSR, and the mixer is the parts panel, which should render server-side.
+	// Audio settings arrive with the page load and never change without a
+	// reload, so capturing them once is deliberate.
+	// svelte-ignore state_referenced_locally
 	const player = new PlayerStore(() => data.soundfontUrl, {
 		masterVolume: data.audio.masterVolume,
 		renderSampleRate: data.audio.renderSampleRate

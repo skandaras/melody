@@ -37,8 +37,13 @@
 	}
 	let { initial }: Props = $props();
 
+	// The admin page re-mounts this tab with fresh data on every visit, so
+	// seeding from the prop once is the intended behaviour, not a bug.
+	// svelte-ignore state_referenced_locally
 	let report = $state<Report>(initial);
+	// svelte-ignore state_referenced_locally
 	let limitText = $state(String(initial.budget.limitUsd || 0));
+	// svelte-ignore state_referenced_locally
 	let period = $state(initial.budget.period);
 	let busy = $state(false);
 	let error = $state('');
