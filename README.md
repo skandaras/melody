@@ -309,7 +309,14 @@ src/lib/export/      MIDI, MusicXML, PDF, WAV
 src/lib/server/ai/   OpenRouter client, strict tool schemas, agent loop, SSE jobs
 src/lib/server/      auth, db, settings, crypto, clips, controls
 src/routes/          pages and API
+docs/epics/          design documents for work in progress
 ```
+
+**In progress:** [the staged composition flow](docs/epics/staged-composition.md)
+— melody is being reshaped from an open-ended editor into six stages (Brief,
+Plan, Melody, Arrangement, Refinement, Finish) with a manual-only editor beside
+them. The epic carries the stage briefs, the visual direction and a verified
+triage of what is currently broken.
 
 Two conventions carry most of the weight:
 
