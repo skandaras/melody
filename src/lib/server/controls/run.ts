@@ -3,7 +3,7 @@ import type { Op } from '$lib/score/apply.js';
 import type { Selection } from '$lib/score/types.js';
 import { checkBudget } from '../budget.js';
 import { buildEditContext } from '../ai/context.js';
-import { createJob, emit, finishJob, recordUsage } from '../ai/jobs.js';
+import { createJob, emit, finishJob, timedOut, recordUsage } from '../ai/jobs.js';
 import { runAgentLoop } from '../ai/loop.js';
 import { NoModelError, NoProviderError, resolveTask } from '../ai/provider.js';
 import { findSkill, skillBlock } from '../ai/skills.js';
@@ -153,16 +153,20 @@ export function runControl(opts: RunControlOptions): ControlResult {
 			// See run.ts: the loop reports an abort as an ordinary return, so a
 			// cancelled control would otherwise still commit its edits.
 			if (result.stopReason === 'aborted') {
+				// An abort is either a person pressing Cancel or the job's own
+				// wall-clock ceiling. Both unwind identically, so ask which it was
+				// rather than adding a second writer of the terminal status.
+				const outcome = timedOut(jobId) ? 'timed_out' : 'cancelled';
 				emit(jobId, 'result', {
 					ops: 0,
-					outcome: 'cancelled',
+					outcome,
 					opsApplied: 0,
 					opsRejected: result.rejectedOps,
 					summary: result.summary,
 					warnings: result.warnings,
 					stopReason: result.stopReason
 				});
-				finishJob(jobId, 'cancelled');
+				finishJob(jobId, outcome);
 				return;
 			}
 

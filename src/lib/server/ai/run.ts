@@ -3,7 +3,7 @@ import { checkBudget } from '../budget.js';
 import { commitOps, loadScore } from '../scores.js';
 import { DEFAULT_AI, DEFAULT_MODELS, getSetting, type AiSettings, type ModelSettings } from '../settings.js';
 import { buildEditContext } from './context.js';
-import { createJob, emit, finishJob, recordUsage } from './jobs.js';
+import { createJob, emit, finishJob, recordUsage, timedOut } from './jobs.js';
 import { runAgentLoop } from './loop.js';
 import { resolveTask } from './provider.js';
 import type { Selection } from '$lib/score/types.js';
@@ -91,16 +91,20 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 			// `aborted` normally rather than throwing, so without this the turn
 			// the user just cancelled would still be committed as a revision.
 			if (result.stopReason === 'aborted') {
+				// An abort is either a person pressing Cancel or the job's own
+				// wall-clock ceiling. Both unwind identically, so ask which it was
+				// rather than adding a second writer of the terminal status.
+				const outcome = timedOut(jobId) ? 'timed_out' : 'cancelled';
 				emit(jobId, 'result', {
 					ops: 0,
-					outcome: 'cancelled',
+					outcome,
 					opsApplied: 0,
 					opsRejected: result.rejectedOps,
 					summary: result.summary,
 					warnings: result.warnings,
 					stopReason: result.stopReason
 				});
-				finishJob(jobId, 'cancelled');
+				finishJob(jobId, outcome);
 				return;
 			}
 

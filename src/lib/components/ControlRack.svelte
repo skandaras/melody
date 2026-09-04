@@ -1,5 +1,7 @@
 <script lang="ts">
 	import ControlParams from './ControlParams.svelte';
+	import RunProgress from './RunProgress.svelte';
+	import { Run } from '$lib/runs/run.svelte';
 	import type { Score, Selection } from '$lib/score/types';
 
 	/**
@@ -42,11 +44,11 @@
 	let openId = $state<string | null>(null);
 	let params = $state<Record<string, Record<string, unknown>>>({});
 	let runningId = $state<string | null>(null);
-	/** Whether this run reached a real outcome, as opposed to the stream dying. */
-	let settled = false;
+
+	// Only the model-backed tiers get a Run. A `code` control is one request
+	// that returns the finished document — see run() below.
+	const activeRun = new Run();
 	let error = $state('');
-	let status = $state('');
-	let source: EventSource | null = null;
 
 	const byCategory = $derived.by(() => {
 		const map = new Map<string, ControlSummary[]>();
@@ -77,8 +79,7 @@
 		if (runningId || busy) return;
 		runningId = c.id;
 		error = '';
-		status = c.free ? '' : `${c.name}…`;
-		settled = false;
+		activeRun.reset();
 
 		try {
 			const res = await fetch(`/api/scores/${scoreId}/controls/${c.id}`, {
@@ -92,76 +93,27 @@
 			if (result.kind === 'applied') {
 				onapplied(result);
 				runningId = null;
-				status = '';
 				openId = null;
 			} else {
-				listen(result.jobId, c.name);
+				activeRun.listen(result.jobId, (r) => {
+					onstaged({ ...r, doc: r.doc as Score, label: c.name });
+					openId = null;
+				});
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			runningId = null;
-			status = '';
 		}
 	}
 
-	function listen(jobId: string, label: string) {
-		close();
-		source = new EventSource(`/api/jobs/${jobId}/events`);
+	// A finished run stops blocking the rack, but its last message stays on
+	// screen until the next control is fired — that message is the only thing
+	// telling the user what happened.
+	$effect(() => {
+		if (runningId && activeRun.jobId && !activeRun.running) runningId = null;
+	});
 
-		source.addEventListener('iteration', (e) => {
-			status = `${label} — step ${JSON.parse(e.data).n}`;
-		});
-		source.addEventListener('result', (e) => {
-			const d = JSON.parse(e.data);
-			settled = true;
-			if (d.warnings?.length) error = d.warnings.join(' ');
-			if (d.doc && d.revisionId) {
-				onstaged({ doc: d.doc, revisionId: d.revisionId, diff: d.diff, label });
-				openId = null;
-			} else if (d.outcome === 'cancelled') {
-				status = 'Cancelled — nothing was changed.';
-			} else if (d.opsRejected > 0) {
-				status =
-					d.summary ||
-					`${label} tried ${d.opsRejected} edit${d.opsRejected === 1 ? '' : 's'}, but none of them matched anything.`;
-			} else {
-				status = d.summary || 'No changes were made.';
-			}
-		});
-		source.addEventListener('error', (e) => {
-			const data = (e as MessageEvent).data;
-			if (!data) return;
-			try {
-				error = JSON.parse(data).error ?? 'The control failed.';
-			} catch {
-				error = 'The control failed.';
-			}
-			settled = true;
-			status = '';
-			stop();
-		});
-		source.addEventListener('done', () => stop());
-		source.onerror = () => {
-			if (source?.readyState !== EventSource.CLOSED) return;
-			if (!settled) {
-				status = '';
-				error = 'Lost the connection to this control. It may still be running — reload to pick it up.';
-			}
-			stop();
-		};
-	}
-
-	function stop() {
-		close();
-		runningId = null;
-	}
-
-	function close() {
-		source?.close();
-		source = null;
-	}
-
-	$effect(() => () => close());
+	$effect(() => () => activeRun.destroy());
 </script>
 
 <p class="hint">
@@ -171,9 +123,9 @@
 
 {#if error}
 	<p class="msg err">{error}</p>
-{:else if status}
-	<p class="msg">{status}</p>
 {/if}
+
+<RunProgress state={activeRun.state} oncancel={() => activeRun.cancel()} idleLabel="Working…" />
 
 {#each byCategory as [category, list] (category)}
 	<section>

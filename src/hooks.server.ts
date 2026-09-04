@@ -8,6 +8,7 @@ import {
 } from '$lib/server/auth';
 import { ensureDataDirs, runMigrations } from '$lib/server/db';
 import { seedTaskConfigs, seedControls, seedStyleSkills } from '$lib/server/bootstrap';
+import { failOrphanedJobs } from '$lib/server/ai/jobs';
 import { sweepRetention } from '$lib/server/retention';
 import { sweepRecordings } from '$lib/server/recordings';
 import { provisionUser } from '$lib/server/users';
@@ -19,6 +20,10 @@ ensureDataDirs();
 seedTaskConfigs();
 seedControls();
 seedStyleSkills();
+// Job buffers live in memory, so anything still `running` belongs to a process
+// that no longer exists. Left alone the row sits there forever and its owner
+// watches a turn that can never resolve.
+failOrphanedJobs();
 // Prune the activity and usage logs once now, then daily — the same deal the
 // revision pruner gets per commit, for the two tables that have no commit of
 // their own. The recording sweep rides along: it is also a daily job, and its

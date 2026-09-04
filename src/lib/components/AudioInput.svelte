@@ -1,4 +1,6 @@
 <script lang="ts">
+	import RunProgress from './RunProgress.svelte';
+	import { Run } from '$lib/runs/run.svelte';
 	import { playCountIn, Recorder, decodeToMono, normalise, peakLevel, type CountIn } from '$lib/audio/capture';
 	import { detectNotesInWorker } from '$lib/audio/transcribe-client';
 	import { notesToScore } from '$lib/audio/transcribe';
@@ -47,11 +49,16 @@
 	type Stage = 'idle' | 'counting' | 'recording' | 'decoding' | 'detecting' | 'saving';
 
 	let stage = $state<Stage>('idle');
-	let progress = $state(0);
-	/** What the detector is doing, when it is more specific than the stage. */
-	let detail = $state('');
-	/** Set when a run passes the point where it should plainly have finished. */
-	let slow = $state(false);
+
+	/**
+	 * Transcription reported as a run, the same shape an AI turn uses.
+	 *
+	 * Not a job — this is a Web Worker on this machine — but a person waiting on
+	 * it wants the same answers, so it drives the same state and is rendered by
+	 * the same component. It owns the abort signal and the slow-run watchdog
+	 * that used to live here.
+	 */
+	const run = new Run();
 	let error = $state('');
 	let hint = $state('');
 	let elapsed = $state(0);
@@ -65,21 +72,10 @@
 
 	let recorder: Recorder | null = null;
 	let timer: ReturnType<typeof setInterval> | null = null;
-	let watchdog: ReturnType<typeof setTimeout> | null = null;
-	let controller: AbortController | null = null;
 	let countIn: CountIn | null = null;
 	/** The AudioContext the count-in clicks run through, so cancel can close it. */
 	let countInCtx: AudioContext | null = null;
 	let fileInput: HTMLInputElement | null = $state(null);
-
-	/**
-	 * How long a run may go without finishing before we admit something is off.
-	 *
-	 * Inference is seconds when WebGL is available and minutes when the worker
-	 * silently falls back to CPU. The user cannot tell those apart from a frozen
-	 * bar, so say so rather than letting them guess.
-	 */
-	const SLOW_AFTER_MS = 45_000;
 
 	const busy = $derived(stage !== 'idle' && stage !== 'recording');
 	const bpm = $derived.by(() => {
@@ -167,20 +163,15 @@
 
 	function cancel() {
 		clearTimer();
-		if (watchdog) clearTimeout(watchdog);
-		watchdog = null;
 		countIn?.cancel();
 		countIn = null;
 		countInCtx?.close();
 		countInCtx = null;
 		recorder?.cancel();
 		recorder = null;
-		controller?.abort();
-		controller = null;
+		void run.cancel();
+		run.reset();
 		stage = 'idle';
-		progress = 0;
-		detail = '';
-		slow = false;
 	}
 
 	function clearTimer() {
@@ -191,10 +182,22 @@
 	async function transcribe(source: Blob | File, label: string) {
 		error = '';
 		hint = '';
-		progress = 0;
-		controller = new AbortController();
+		const signal = run.startLocal();
+		// Declared up front so the bar has an honest denominator rather than a
+		// spinner — the same contract an AI turn now announces.
+		run.push({
+			type: 'plan',
+			data: {
+				phases: [
+					{ id: 'decoding', label: 'Reading audio…' },
+					{ id: 'detecting', label: 'Finding notes…' },
+					{ id: 'saving', label: 'Saving…' }
+				]
+			}
+		});
 		try {
 			stage = 'decoding';
+			run.push({ type: 'phase', data: { id: 'decoding', label: 'Reading audio…' } });
 			const decoded = await decodeToMono(source);
 			if (decoded.durationSeconds < 0.4) {
 				throw new Error('That is too short to transcribe — try at least a couple of seconds.');
@@ -206,9 +209,9 @@
 			}
 
 			stage = 'detecting';
-			watchdog = setTimeout(() => (slow = true), SLOW_AFTER_MS);
+			run.push({ type: 'phase', data: { id: 'detecting', label: 'Finding notes…' } });
 			const notes = await detectNotesInWorker(normalise(decoded.samples), {
-				signal: controller.signal,
+				signal,
 				// Admin-configured detector thresholds. The model works in frames of
 				// roughly 11ms, so the shortest-kept-note setting converts here
 				// rather than leaking audio internals into the settings table.
@@ -217,11 +220,16 @@
 				minNoteFrames: Math.max(1, Math.round(settings.minNoteMs / 11)),
 				onProgress: (p) => {
 					if (p.phase === 'model') {
-						detail = 'Loading the detection model…';
+						run.push({ type: 'status', data: { message: 'Loading the detection model…' } });
 						return;
 					}
-					progress = p.fraction;
-					detail = p.windows > 1 ? `${p.window} of ${p.windows}` : '';
+					run.push({ type: 'fraction', data: { value: p.fraction } });
+					run.push({
+						type: 'status',
+						data: {
+							message: p.windows > 1 ? `Finding notes — ${p.window} of ${p.windows}` : 'Finding notes…'
+						}
+					});
 				}
 			});
 
@@ -241,6 +249,7 @@
 			});
 
 			stage = 'saving';
+			run.push({ type: 'phase', data: { id: 'saving', label: 'Saving…' } });
 			await ontranscribed(score, label);
 			await uploadRecording(source);
 
@@ -253,13 +262,11 @@
 				error = e instanceof Error ? e.message : String(e);
 			}
 		} finally {
-			if (watchdog) clearTimeout(watchdog);
-			watchdog = null;
-			controller = null;
+			// The outcome is carried by `hint` or `error`, which say something
+			// specific about the take; the run only ever reported progress, so it
+			// goes back to idle and renders nothing.
+			run.reset();
 			stage = 'idle';
-			progress = 0;
-			detail = '';
-			slow = false;
 		}
 	}
 
@@ -347,21 +354,12 @@
 		}}
 	/>
 
-	{#if busy}
-		<div class="status">
-			<span>{detail || stageLabel[stage]}</span>
-			{#if stage === 'detecting'}
-				<progress max="1" value={progress}></progress>
-				<span class="pct">{Math.round(progress * 100)}%</span>
-			{/if}
-		</div>
-		{#if slow}
-			<p class="msg dim">
-				Still going. Your browser may be running the detector without GPU
-				acceleration, which is much slower — a long take can take several minutes.
-			</p>
-		{/if}
-	{/if}
+	<RunProgress
+		state={run.state}
+		oncancel={cancel}
+		idleLabel={stageLabel[stage] || 'Working…'}
+		slowNote="Still going. Your browser may be running the detector without GPU acceleration, which is much slower — a long take can take several minutes."
+	/>
 
 	<div class="row settings">
 		<label>
@@ -443,22 +441,6 @@
 	}
 	.hidden-input {
 		display: none;
-	}
-	.status {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--fg-dim);
-	}
-	progress {
-		flex: 1;
-		height: 4px;
-		accent-color: var(--accent);
-	}
-	.pct {
-		font-variant-numeric: tabular-nums;
-		flex: none;
 	}
 	.settings {
 		font-size: var(--text-xs);

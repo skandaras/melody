@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { __resetJobs, cancelJob, createJob, emit, finishJob, jobOwner, subscribe } from './jobs.js';
+import {
+	__resetJobs,
+	cancelJob,
+	createJob,
+	emit,
+	failOrphanedJobs,
+	finishJob,
+	jobOwner,
+	subscribe
+} from './jobs.js';
 import { db, runMigrations } from '../db/index.js';
 import { jobs } from '../db/schema.js';
 import { listEvents } from '../events.js';
@@ -216,5 +225,68 @@ describe('ownership', () => {
 
 	it('returns null for a job that does not exist', () => {
 		expect(jobOwner('no-such-job')).toBeNull();
+	});
+});
+
+describe('a job that outlives its buffer', () => {
+	const statusOf = (id: string) =>
+		db.select({ status: jobs.status }).from(jobs).where(eq(jobs.id, id)).get()?.status;
+
+	it('still reports how it ended', () => {
+		const { id } = createJob({ userId: user, task: 'edit_selection' });
+		finishJob(id, 'no_effect');
+
+		// The buffer is gone — swept, or lost to a restart — but the row remains.
+		__resetJobs();
+
+		const seen: { type: string; data: unknown }[] = [];
+		subscribe(id, (e) => seen.push({ type: e.type, data: e.data }));
+
+		// Closing with a bare __end__ is indistinguishable from "finished long
+		// ago", which is how a reconnecting browser ends up showing nothing.
+		expect(seen.map((e) => e.type)).toEqual(['done', '__end__']);
+		expect((seen[0].data as { status: string }).status).toBe('no_effect');
+	});
+
+	it('reports a failure as a failure', () => {
+		const { id } = createJob({ userId: user, task: 'edit_selection' });
+		finishJob(id, 'error', 'the provider refused');
+		__resetJobs();
+
+		const seen: { type: string; data: unknown }[] = [];
+		subscribe(id, (e) => seen.push({ type: e.type, data: e.data }));
+
+		expect(seen[0].type).toBe('error');
+		expect((seen[0].data as { error: string }).error).toBe('the provider refused');
+	});
+
+	it('says nothing for a row that still claims to be running', () => {
+		// Inventing a terminal event here would report a live job as finished.
+		const { id } = createJob({ userId: user, task: 'edit_selection' });
+		__resetJobs();
+
+		const seen: string[] = [];
+		subscribe(id, (e) => seen.push(e.type));
+		expect(seen).toEqual(['__end__']);
+	});
+
+	it('closes immediately for a job id that never existed', () => {
+		const seen: string[] = [];
+		subscribe('no-such-job', (e) => seen.push(e.type));
+		expect(seen).toEqual(['__end__']);
+	});
+
+	it('fails jobs a restart left running, and is idempotent', () => {
+		const { id } = createJob({ userId: user, task: 'edit_selection' });
+		const finished = createJob({ userId: user, task: 'title' });
+		finishJob(finished.id, 'done');
+
+		expect(failOrphanedJobs()).toBeGreaterThanOrEqual(1);
+		expect(statusOf(id)).toBe('error');
+		// A job that had already finished keeps the status it earned.
+		expect(statusOf(finished.id)).toBe('done');
+
+		// Nothing left running, so a second boot changes nothing.
+		expect(failOrphanedJobs()).toBe(0);
 	});
 });
