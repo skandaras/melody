@@ -120,7 +120,16 @@ export class Player {
 
 			this.ctx = ctx;
 			this.synth = synth;
-			this.sequencer = new Sequencer(synth);
+			// skipToFirstNoteOn defaults to true, which silently redirects any
+			// seek landing before the first note-on to the first note-on
+			// instead. With only a time readout that went unnoticed; with a
+			// playhead drawn on the score it would sit at bar 1 while the audio
+			// was actually parked in bar 3, then teleport on the first frame of
+			// playback. Any piece opening with a rest exposes it.
+			this.sequencer = new Sequencer(synth, {
+				skipToFirstNoteOn: false,
+				initialPlaybackRate: 1
+			});
 			this.emit({ ready: true, loading: false, loadProgress: null });		} catch (err) {
 			this.emit({
 				loading: false,

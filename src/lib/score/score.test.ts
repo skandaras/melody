@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { emptyScore, PPQ, type Score } from './types.js';
 import { applyOps } from './apply.js';
 import { validateScore } from './validate.js';
-import { measuresOf, measureTicks, timeSigAt, scoreEndTick } from './measures.js';
+import {
+	measuresOf,
+	measureTicks,
+	timeSigAt,
+	scoreEndTick,
+	secondsToTick,
+	tickToSeconds
+} from './measures.js';
 import { detectKey, nameChord, analyse, summarise } from './analyse.js';
 import { resolveSelection, findNote } from './query.js';
 import {
@@ -324,6 +331,76 @@ describe('operations', () => {
 		const fitted = applyOps(s, [{ op: 'fit_to_key', args: {} }]).score;
 		const fs = resolveSelection(fitted, {}).find((n) => n.note.tick === 1920);
 		expect(fs!.note.pitches[0].midi).toBe(65); // F#4 -> F4 in C major
+	});
+});
+
+describe('ticks and seconds', () => {
+	// The playhead needs seconds→ticks and nothing walked that way before. Both
+	// directions honour the tempo map, so a piece that speeds up halfway stays
+	// in sync rather than drifting from the change onward.
+	const at = (bpm: number, tick = 0) => ({ tick, bpm });
+
+	it('converts at a single tempo', () => {
+		const s = { ...emptyScore(), tempoMap: [at(120)] };
+		// 120bpm is two quarters a second, so one quarter (PPQ ticks) is 0.5s.
+		expect(tickToSeconds(s, PPQ)).toBeCloseTo(0.5, 6);
+		expect(secondsToTick(s, 0.5)).toBe(PPQ);
+	});
+
+	it('is zero at zero, in both directions', () => {
+		const s = { ...emptyScore(), tempoMap: [at(90)] };
+		expect(tickToSeconds(s, 0)).toBe(0);
+		expect(secondsToTick(s, 0)).toBe(0);
+	});
+
+	it('treats negative input as the start rather than extrapolating backwards', () => {
+		const s = { ...emptyScore(), tempoMap: [at(90)] };
+		expect(tickToSeconds(s, -500)).toBe(0);
+		expect(secondsToTick(s, -3)).toBe(0);
+	});
+
+	it('honours a tempo change mid-piece', () => {
+		// Four quarters at 120 (2s), then everything after at 60 (1s a quarter).
+		const s = { ...emptyScore(), tempoMap: [at(120), at(60, PPQ * 4)] };
+
+		expect(tickToSeconds(s, PPQ * 4)).toBeCloseTo(2, 6);
+		// Two more quarters at half the speed is another two seconds.
+		expect(tickToSeconds(s, PPQ * 6)).toBeCloseTo(4, 6);
+		expect(secondsToTick(s, 4)).toBe(PPQ * 6);
+	});
+
+	it('round-trips across a multi-tempo map', () => {
+		const s = {
+			...emptyScore(),
+			tempoMap: [at(72), at(144, PPQ * 8), at(96, PPQ * 20)]
+		};
+		for (const tick of [0, 240, PPQ * 3, PPQ * 8, PPQ * 12, PPQ * 20, PPQ * 33]) {
+			expect(secondsToTick(s, tickToSeconds(s, tick))).toBe(tick);
+		}
+	});
+
+	it('keeps going past the last tempo mark instead of clamping', () => {
+		// Otherwise the playhead stops on the final mark and a trailing rest
+		// plays with nothing moving.
+		const s = { ...emptyScore(), tempoMap: [at(120), at(60, PPQ * 4)] };
+		const far = tickToSeconds(s, PPQ * 100);
+		expect(far).toBeGreaterThan(tickToSeconds(s, PPQ * 50));
+		expect(secondsToTick(s, far)).toBe(PPQ * 100);
+	});
+
+	it('survives a tempo map that does not start at zero', () => {
+		// coerceScore guarantees a mark at 0, but this is arithmetic that would
+		// silently produce a negative tick rather than fail loudly.
+		const s = { ...emptyScore(), tempoMap: [{ tick: PPQ * 4, bpm: 60 }] };
+		expect(tickToSeconds(s, 0)).toBe(0);
+		expect(secondsToTick(s, 0)).toBe(0);
+		expect(secondsToTick(s, 1)).toBeGreaterThan(0);
+	});
+
+	it('does not divide by zero on a nonsense tempo', () => {
+		const s = { ...emptyScore(), tempoMap: [{ tick: 0, bpm: 0 }] };
+		expect(Number.isFinite(tickToSeconds(s, PPQ))).toBe(true);
+		expect(Number.isFinite(secondsToTick(s, 1))).toBe(true);
 	});
 });
 

@@ -12,6 +12,7 @@
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { analyse } from '$lib/score/analyse';
+	import { secondsToTick } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
 	import type { Score, Selection } from '$lib/score/types';
@@ -74,6 +75,19 @@
 	});
 
 	const summary = $derived(analyse(score));
+
+	/**
+	 * Where playback has reached, in ticks.
+	 *
+	 * Null unless something is actually sounding: a line parked at the start of
+	 * a stopped score reads as a stuck playhead rather than an idle one. The
+	 * transport reports seconds, the notation is laid out in ticks, and
+	 * secondsToTick walks the tempo map between them — so a piece that changes
+	 * tempo stays in sync instead of drifting from the change onward.
+	 */
+	const playheadTick = $derived(
+		player.transport.playing ? secondsToTick(score, player.transport.position) : null
+	);
 	const selectionCount = $derived(selected.size);
 
 	/** What the AI and controls act on: explicit notes, else the whole score. */
@@ -138,6 +152,20 @@
 			],
 			entry.rest ? 'Added a rest' : 'Added a note'
 		);
+	}
+
+	/**
+	 * Commit a drag.
+	 *
+	 * Goes through the same write path as every other edit, so a dragged note
+	 * lands in the revision history and can be undone like anything else. The
+	 * operations themselves are worked out in `render/drag.ts`, which is pure
+	 * and tested — the direction of "up" and the clamp that stops a selection
+	 * collapsing onto tick 0 are both easy to get silently wrong.
+	 */
+	async function dragNotes(ops: Op[]) {
+		if (!ops.length || busy) return;
+		await runOps(ops, ops.length > 1 ? 'Moved notes' : 'Moved a note');
 	}
 
 	async function runOps(ops: Op[], label: string, source: 'user' | 'control' = 'user') {
@@ -418,9 +446,12 @@
 				{scale}
 				{mode}
 				{entry}
+				{playheadTick}
+				{busy}
 				diff={pendingDiff}
 				{onselect}
 				onplace={placeNote}
+				ondrag={dragNotes}
 			/>
 		</div>
 
