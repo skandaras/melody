@@ -74,7 +74,10 @@ export function recordJobEvent(opts: {
 			.get();
 		if (!job) return;
 
-		const ok = opts.status !== 'error';
+		// A timeout is a failure even though nothing threw; `cancelled` and
+		// `no_effect` are not — the first is what the user asked for, and the
+		// second is a turn that ran correctly and decided nothing needed changing.
+		const ok = opts.status !== 'error' && opts.status !== 'timed_out';
 		recordEvent({
 			userId: job.userId,
 			scoreId: job.scoreId,

@@ -109,6 +109,8 @@ export function runControl(opts: RunControlOptions): ControlResult {
 
 	void (async () => {
 		try {
+			emit(jobId, 'plan', { phases: [{ id: 'control', label: control.name }] });
+			emit(jobId, 'phase', { id: 'control', index: 0, total: 1, label: control.name });
 			emit(jobId, 'status', { message: `${control.name}…` });
 
 			const styleRef = ai.useStyleSkills ? styleReference(params) : '';
@@ -135,6 +137,7 @@ export function runControl(opts: RunControlOptions): ControlResult {
 				reasoning: resolved.options.reasoning,
 				tools: control.kind === 'agent' ? agentTools() : opTools(),
 				signal: abort,
+				phase: { id: 'control', label: control.name },
 				onEvent: (event) => emit(jobId, event.type, event)
 			});
 
@@ -147,14 +150,33 @@ export function runControl(opts: RunControlOptions): ControlResult {
 				status: 'ok'
 			});
 
-			if (result.ops.length === 0) {
+			// See run.ts: the loop reports an abort as an ordinary return, so a
+			// cancelled control would otherwise still commit its edits.
+			if (result.stopReason === 'aborted') {
 				emit(jobId, 'result', {
 					ops: 0,
+					outcome: 'cancelled',
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
 					summary: result.summary,
 					warnings: result.warnings,
 					stopReason: result.stopReason
 				});
-				finishJob(jobId, 'done');
+				finishJob(jobId, 'cancelled');
+				return;
+			}
+
+			if (result.ops.length === 0) {
+				emit(jobId, 'result', {
+					ops: 0,
+					outcome: result.stopReason === 'no_effect' ? 'no_effect' : 'done',
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
+					summary: result.summary,
+					warnings: result.warnings,
+					stopReason: result.stopReason
+				});
+				finishJob(jobId, result.stopReason === 'no_effect' ? 'no_effect' : 'done');
 				return;
 			}
 
@@ -169,11 +191,15 @@ export function runControl(opts: RunControlOptions): ControlResult {
 
 			emit(jobId, 'result', {
 				ops: result.ops.length,
+				outcome: 'done',
+				opsApplied: result.ops.length,
+				opsRejected: result.rejectedOps,
 				summary: result.summary,
 				warnings: result.warnings,
 				stopReason: result.stopReason,
 				revisionId: commit.revisionId,
 				diff: commit.diff,
+				created: commit.created,
 				doc: commit.score
 			});
 			finishJob(jobId, 'done');

@@ -33,6 +33,8 @@
 	let step = $state(0);
 	let log = $state<string[]>([]);
 	let source: EventSource | null = null;
+	/** Whether this turn reached a real outcome, as opposed to the stream dying. */
+	let settled = false;
 
 	const canSend = $derived(instruction.trim().length > 0 && !running && !busy);
 
@@ -43,6 +45,12 @@
 		error = '';
 		status = 'Starting…';
 		log = [];
+		// Cleared here rather than in stop(): the last thing a finished turn says
+		// is the only thing the user has to read, and wiping it on `done` is what
+		// made a model that answered without editing look like a hang.
+		streamed = '';
+		step = 0;
+		settled = false;
 
 		try {
 			const res = await fetch(`/api/scores/${scoreId}/ai`, {
@@ -89,10 +97,19 @@
 		});
 		source.addEventListener('result', (e) => {
 			const d = JSON.parse(e.data);
+			settled = true;
 			if (d.warnings?.length) error = d.warnings.join(' ');
 			if (d.doc && d.revisionId) {
 				onresult({ doc: d.doc, revisionId: d.revisionId, diff: d.diff, label });
 				instruction = '';
+			} else if (d.outcome === 'cancelled') {
+				status = 'Cancelled — nothing was changed.';
+			} else if (d.opsRejected > 0) {
+				// The distinction the server now draws: it tried and every edit
+				// missed, which is a different problem from having nothing to say.
+				status =
+					d.summary ||
+					`Tried ${d.opsRejected} edit${d.opsRejected === 1 ? '' : 's'}, but none of them matched anything in the score.`;
 			} else {
 				status = d.summary || 'The model made no changes.';
 			}
@@ -108,20 +125,29 @@
 			} catch {
 				error = 'The request failed.';
 			}
+			// The error is the message now; a leftover "Working — step 3" beside
+			// it would only contradict it.
+			settled = true;
+			status = '';
 			stop();
 		});
 		source.addEventListener('done', () => stop());
 		source.onerror = () => {
-			if (source?.readyState === EventSource.CLOSED) stop();
+			if (source?.readyState !== EventSource.CLOSED) return;
+			// Closed without an outcome: the turn is still running server-side and
+			// will finish, but this panel has stopped hearing about it. Saying so
+			// is the whole point — a stale progress line reads as a hang.
+			if (!settled) {
+				status = '';
+				error = 'Lost the connection to this turn. It may still be running — reload to pick it up.';
+			}
+			stop();
 		};
 	}
 
 	function stop() {
 		close();
 		running = false;
-		status = '';
-		streamed = '';
-		step = 0;
 	}
 
 	function close() {

@@ -327,6 +327,66 @@ describe('operations', () => {
 	});
 });
 
+describe('created entities', () => {
+	// Approving a composition plan emits add_part and set_section and then has to
+	// map the result back to its own sections. Ids are deterministic counters, so
+	// they look predictable right up until a transcription has already added a
+	// part — which is the normal case, not the edge one.
+	it('reports the part add_part created', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Cello', instrument: 'Cello' } }
+		]);
+		expect(r.diff.created).toEqual([
+			{ kind: 'part', id: r.score.parts[0].id, name: 'Cello' }
+		]);
+	});
+
+	it('reports the section set_section created', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]);
+		expect(r.diff.created).toEqual([
+			{ kind: 'section', id: r.score.sections[0].id, name: 'Verse' }
+		]);
+	});
+
+	it('merges everything a batch created, in order', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Piano', instrument: 'Piano' } },
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } },
+			{ op: 'set_section', args: { name: 'Chorus', startTick: 1920, endTick: 3840 } }
+		]);
+		expect(r.diff.created?.map((c) => [c.kind, c.name])).toEqual([
+			['part', 'Piano'],
+			['section', 'Verse'],
+			['section', 'Chorus']
+		]);
+	});
+
+	it('reports nothing when set_section updates an existing section', () => {
+		const first = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]);
+		const sectionId = first.score.sections[0].id;
+
+		const second = applyOps(first.score, [
+			{ op: 'set_section', args: { sectionId, name: 'Verse 1', startTick: 0, endTick: 3840 } }
+		]);
+
+		expect(second.diff.created).toBeUndefined();
+		expect(second.score.sections).toHaveLength(1);
+		expect(second.score.sections[0].name).toBe('Verse 1');
+	});
+
+	it('leaves created absent for ops that make nothing', () => {
+		const seeded = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Piano', instrument: 'Piano' } }
+		]).score;
+		const r = applyOps(seeded, [{ op: 'set_tempo', args: { bpm: 96 } }]);
+		expect(r.diff.created).toBeUndefined();
+	});
+});
+
 describe('selection', () => {
 	it('treats explicit noteIds as final', () => {
 		const s = fixture();

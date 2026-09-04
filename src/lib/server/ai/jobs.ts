@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { jobs, usageLog, type JobStatus } from '../db/schema.js';
 import { recordJobEvent } from '../events.js';
@@ -91,10 +91,34 @@ export function emit(jobId: string, type: string, data: unknown = {}): void {
 	}
 }
 
+/**
+ * End a job, exactly once.
+ *
+ * The guard is on the UPDATE rather than on the in-memory buffer, so it holds
+ * for a job whose buffer was lost to a restart as well as for the ordinary
+ * case. Only the write that actually moves the row off `running` gets to emit
+ * the terminal event and log the activity; a second caller finds nothing to
+ * change and returns silently.
+ *
+ * This matters because cancellation used to have two writers — cancelJob wrote
+ * `cancelled` and the executor then wrote `done` straight over it, logging the
+ * job twice. Cancellation now aborts and lets the executor be the only writer,
+ * but a race is a race, so the invariant is enforced here rather than assumed.
+ */
 export function finishJob(jobId: string, status: JobStatus, error?: string): void {
+	const res = db
+		.update(jobs)
+		.set({ status, error: error ?? null, finishedAt: new Date() })
+		.where(and(eq(jobs.id, jobId), eq(jobs.status, 'running')))
+		.run();
+	if (res.changes === 0) return;
+
 	const buffer = buffers.get(jobId);
 	if (buffer) {
-		emit(jobId, status === 'error' ? 'error' : 'done', error ? { error } : {});
+		// The event name stays `done`/`error` because that is the contract the
+		// current client listens on; the real outcome rides in the payload so a
+		// no_effect or a cancellation is distinguishable without a new listener.
+		emit(jobId, status === 'error' ? 'error' : 'done', { status, ...(error ? { error } : {}) });
 		buffer.done = true;
 		buffer.finishedAt = Date.now();
 		for (const fn of buffer.subscribers) {
@@ -107,10 +131,6 @@ export function finishJob(jobId: string, status: JobStatus, error?: string): voi
 		buffer.subscribers.clear();
 	}
 
-	db.update(jobs)
-		.set({ status, error: error ?? null, finishedAt: new Date() })
-		.where(eq(jobs.id, jobId))
-		.run();
 	// The activity log is how the usage tab shows what ran and what failed;
 	// recording it here means every entry point gets it for free.
 	recordJobEvent({ jobId, status, error });
@@ -140,11 +160,19 @@ export function subscribe(jobId: string, fn: (event: JobEvent) => void): () => v
 	return () => buffer.subscribers.delete(fn);
 }
 
+/**
+ * Ask a running job to stop.
+ *
+ * Only aborts. Writing the terminal status here as well used to mean a
+ * cancelled turn was recorded twice and then overwritten by the executor's
+ * `done` — and, worse, that the executor carried on and committed the very ops
+ * the user had just cancelled. The abort travels through the loop's signal, the
+ * loop returns `aborted`, and the executor is the single writer of `cancelled`.
+ */
 export function cancelJob(jobId: string): boolean {
 	const buffer = buffers.get(jobId);
 	if (!buffer || buffer.done) return false;
 	buffer.abort.abort();
-	finishJob(jobId, 'cancelled');
 	return true;
 }
 

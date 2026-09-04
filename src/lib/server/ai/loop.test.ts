@@ -52,7 +52,11 @@ describe('runAgentLoop — normal flow', () => {
 		const { promise, adapter } = run([{ content: 'Nothing to change.', finishReason: 'stop' }]);
 		const r = await promise;
 
-		expect(r.stopReason).toBe('done');
+		// Answering without editing is `no_effect`, not `done`: the turn ran
+		// correctly and produced nothing, and the caller has to be able to tell
+		// that apart from a turn that actually changed the score.
+		expect(r.stopReason).toBe('no_effect');
+		expect(r.rejectedOps).toBe(0);
 		expect(r.ops).toEqual([]);
 		expect(r.summary).toBe('Nothing to change.');
 		expect(adapter.callCount).toBe(1);
@@ -253,6 +257,13 @@ describe('runAgentLoop — misbehaving models', () => {
 		expect(adapter.requests[1].messages.find((m) => m.role === 'tool')?.content).toContain(
 			'matched nothing'
 		);
+
+		// This is the reported bug's exact shape: the model read the score,
+		// described what it found, tried an edit that hit nothing, and the turn
+		// was reported as a plain success with an empty panel. The two fields
+		// together are what let the UI say which kind of nothing happened.
+		expect(r.stopReason).toBe('no_effect');
+		expect(r.rejectedOps).toBe(1);
 	});
 
 	it('shows the model its own pending edits when it reads back', async () => {
@@ -277,7 +288,10 @@ describe('runAgentLoop — misbehaving models', () => {
 		]);
 		const r = await promise;
 		expect(r.ops).toEqual([]);
-		expect(r.stopReason).toBe('done');
+		// The tool was refused, so this is not merely an empty answer — the
+		// count is what separates "said nothing" from "tried and failed".
+		expect(r.stopReason).toBe('no_effect');
+		expect(r.rejectedOps).toBe(1);
 	});
 
 	it('strips the explicit nulls strict mode forces the model to send', async () => {
@@ -366,6 +380,71 @@ describe('runAgentLoop — bounds', () => {
 			signal: controller.signal
 		});
 		expect((await promise).stopReason).toBe('aborted');
+	});
+
+	it('reports aborted even when ops were already collected', async () => {
+		// The case that matters. Aborting before anything happens is easy; the
+		// bug was a turn cancelled *after* the model had made edits, where the
+		// caller saw a normal return and committed the very ops the user had
+		// just called off. The ops still come back — the caller needs to know
+		// what was in flight — but the stop reason is what decides their fate.
+		const controller = new AbortController();
+		const { promise } = run(
+			[
+				{ toolCalls: [{ name: 'transpose', arguments: '{"semitones":2}' }] },
+				{ content: 'never reached', finishReason: 'stop' }
+			],
+			{
+				signal: controller.signal,
+				onEvent: (e) => {
+					if (e.type === 'tool') controller.abort();
+				}
+			}
+		);
+
+		const r = await promise;
+		expect(r.stopReason).toBe('aborted');
+		expect(r.ops.length).toBeGreaterThan(0);
+	});
+
+	it('does not demote an aborted turn to no_effect', async () => {
+		// no_effect is only ever a substitute for `done`. A cancellation that
+		// happened to collect nothing is still a cancellation.
+		const controller = new AbortController();
+		controller.abort();
+		const { promise } = run([{ content: 'never runs', finishReason: 'stop' }], {
+			signal: controller.signal
+		});
+		const r = await promise;
+		expect(r.ops).toEqual([]);
+		expect(r.stopReason).toBe('aborted');
+	});
+
+	it('tags its events with the phase it was given', async () => {
+		// The loop runs inside one phase and never declares one; realizing six
+		// sections is six loops and only the orchestrator knows that. The tag is
+		// how a client attributes an iteration to the right section.
+		const { promise, events } = run(
+			[
+				{ toolCalls: [{ name: 'transpose', arguments: '{"semitones":2}' }] },
+				{ content: 'Done.', finishReason: 'stop' }
+			],
+			{ phase: { id: 'chorus', label: 'Chorus' } }
+		);
+		await promise;
+
+		const tagged = events.filter((e) => e.type === 'iteration' || e.type === 'tool');
+		expect(tagged.length).toBeGreaterThan(0);
+		for (const e of tagged) {
+			expect((e as { phase?: string }).phase).toBe('chorus');
+		}
+	});
+
+	it('leaves the phase tag off when no phase was given', async () => {
+		const { promise, events } = run([{ content: 'Done.', finishReason: 'stop' }]);
+		await promise;
+		const iteration = events.find((e) => e.type === 'iteration');
+		expect((iteration as { phase?: string }).phase).toBeUndefined();
 	});
 });
 

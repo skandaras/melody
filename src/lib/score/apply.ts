@@ -61,6 +61,7 @@ export function applyOps(score: Score, ops: Op[]): ApplyResult {
 			diff.added.push(...r.added);
 			diff.removed.push(...r.removed);
 			diff.changed.push(...r.changed);
+			if (r.created?.length) (diff.created ??= []).push(...r.created);
 			if (r.note) log.push(r.note);
 		} catch (err) {
 			errors.push({ op: entry.op, reason: err instanceof Error ? err.message : String(err) });

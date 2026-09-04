@@ -107,15 +107,20 @@ correctly.
 
 ### Statuses, and what else must change
 
-Widening `JOB_STATUSES` (`src/lib/server/db/schema.ts:282`) to
-`['running','succeeded','no_effect','failed','cancelled','timed_out']` **needs
-no migration** — Drizzle emitted no CHECK constraint
+Widening `JOB_STATUSES` (`src/lib/server/db/schema.ts`) to
+`['running','done','no_effect','error','cancelled','timed_out']` **needs no
+migration** — Drizzle emitted no CHECK constraint
 (`drizzle/0000_keen_victor_mancha.sql:58-67` shows a bare `status text NOT
-NULL`). Per the expand-migrate-contract doctrine in
-`src/lib/server/db/index.ts:34-41`, keep `done` and `error` readable for
-existing rows. Consumers to update: `finishJob`'s `status === 'error'` branch
-(`jobs.ts:97`) and `recordJobEvent`'s `status !== 'error'` → `ok` mapping
-(`events.ts:77`).
+NULL`).
+
+`done` and `error` **keep their names** rather than becoming
+`succeeded`/`failed`. Renaming would strand every historical row or force every
+reader to understand both spellings, and buys nothing: the distinction that was
+actually missing is `no_effect`, not a better word for success.
+
+Consumers to update: `finishJob`'s `status === 'error'` branch and
+`recordJobEvent`'s `status !== 'error'` → `ok` mapping (`events.ts:77`), which
+would otherwise log a timeout as a success.
 
 ### One uniform result payload
 

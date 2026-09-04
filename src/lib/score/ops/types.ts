@@ -1,5 +1,5 @@
 import type { Score, Selection } from '../types.js';
-import { IdFactory } from '../ids.js';
+import { IdFactory, type IdKind } from '../ids.js';
 
 /**
  * The operation contract.
@@ -32,6 +32,26 @@ export interface OpResult {
 	changed: string[];
 	/** One line for the revision log, e.g. "Transposed 14 notes by +2". */
 	note?: string;
+	/**
+	 * Non-note entities this op brought into existence — parts, sections, voices.
+	 * Note ids stay in `added`, which the diff overlay renders; these are not
+	 * drawn, they are how a caller finds what it just made.
+	 *
+	 * Without this, approving a plan emits add_part and set_section and then has
+	 * no way to map a plan section back to the section id it created. Ids are
+	 * deterministic counters, so they are *predictable* on a virgin score — but
+	 * not once a transcription has already added a part, which is the normal
+	 * case rather than the edge one.
+	 */
+	created?: CreatedEntity[];
+}
+
+/** Something an op made, reported back so the caller can address it later. */
+export interface CreatedEntity {
+	kind: IdKind;
+	id: string;
+	/** The display name, when the entity has one. Saves a lookup. */
+	name?: string;
 }
 
 export interface OpDef<A = Record<string, unknown>> {

@@ -42,6 +42,8 @@
 	let openId = $state<string | null>(null);
 	let params = $state<Record<string, Record<string, unknown>>>({});
 	let runningId = $state<string | null>(null);
+	/** Whether this run reached a real outcome, as opposed to the stream dying. */
+	let settled = false;
 	let error = $state('');
 	let status = $state('');
 	let source: EventSource | null = null;
@@ -76,6 +78,7 @@
 		runningId = c.id;
 		error = '';
 		status = c.free ? '' : `${c.name}…`;
+		settled = false;
 
 		try {
 			const res = await fetch(`/api/scores/${scoreId}/controls/${c.id}`, {
@@ -110,10 +113,17 @@
 		});
 		source.addEventListener('result', (e) => {
 			const d = JSON.parse(e.data);
+			settled = true;
 			if (d.warnings?.length) error = d.warnings.join(' ');
 			if (d.doc && d.revisionId) {
 				onstaged({ doc: d.doc, revisionId: d.revisionId, diff: d.diff, label });
 				openId = null;
+			} else if (d.outcome === 'cancelled') {
+				status = 'Cancelled — nothing was changed.';
+			} else if (d.opsRejected > 0) {
+				status =
+					d.summary ||
+					`${label} tried ${d.opsRejected} edit${d.opsRejected === 1 ? '' : 's'}, but none of them matched anything.`;
 			} else {
 				status = d.summary || 'No changes were made.';
 			}
@@ -126,18 +136,24 @@
 			} catch {
 				error = 'The control failed.';
 			}
+			settled = true;
+			status = '';
 			stop();
 		});
 		source.addEventListener('done', () => stop());
 		source.onerror = () => {
-			if (source?.readyState === EventSource.CLOSED) stop();
+			if (source?.readyState !== EventSource.CLOSED) return;
+			if (!settled) {
+				status = '';
+				error = 'Lost the connection to this control. It may still be running — reload to pick it up.';
+			}
+			stop();
 		};
 	}
 
 	function stop() {
 		close();
 		runningId = null;
-		status = '';
 	}
 
 	function close() {

@@ -55,6 +55,7 @@ export const addPart: OpDef<{
 			voices: [{ id: ctx.ids.next('voice'), events: [] }]
 		};
 		score.parts.push(part);
+		res.created = [{ kind: 'part', id: part.id, name: part.name }];
 		res.note = `Added part "${part.name}" (${args.instrument})`;
 		return res;
 	}

@@ -279,7 +279,24 @@ export const recordings = sqliteTable(
 
 // -------------------------------------------------------- runtime/telemetry
 
-export const JOB_STATUSES = ['running', 'done', 'error', 'cancelled'] as const;
+/**
+ * Terminal states a job can reach.
+ *
+ * `done` and `error` keep their original names rather than becoming
+ * succeeded/failed: renaming would strand every historical row or force every
+ * reader to understand both spellings, and neither buys anything. `no_effect`
+ * is a turn that ran cleanly and changed nothing — a real outcome, not a
+ * failure, and the one the UI used to report as plain success while showing
+ * the user an empty panel.
+ */
+export const JOB_STATUSES = [
+	'running',
+	'done',
+	'no_effect',
+	'error',
+	'cancelled',
+	'timed_out'
+] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export const jobs = sqliteTable(

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { error } from '@sveltejs/kit';
 import { applyOps, type Op } from '$lib/score/apply';
+import type { CreatedEntity } from '$lib/score/ops/types';
 import { mergeParts } from '$lib/score/merge';
 import { emptyScore, type Score } from '$lib/score/types';
 import { coerceScore } from '$lib/score/validate';
@@ -167,6 +168,16 @@ export interface CommitResult {
 	score: Score;
 	revisionId: string;
 	diff: { added: string[]; removed: string[]; changed: string[] };
+	/**
+	 * Parts and sections this commit brought into existence.
+	 *
+	 * Deliberately not folded into `diff`, which is persisted on the revision
+	 * and shaped for the overlay: this is answering "what did I just make" for
+	 * the caller that is still holding the request, not something to read back
+	 * later. Approving a composition plan is the case that needs it — it emits
+	 * add_part and set_section and must map the result to its own sections.
+	 */
+	created?: CreatedEntity[];
 	log: string[];
 	errors: { op: string; reason: string }[];
 }
@@ -192,12 +203,22 @@ export function commitOps(
 		.where(eq(scores.id, scoreId))
 		.run();
 
+	// Only the three note-id arrays are persisted. `created` is an answer to
+	// "what did I just make" for the caller still holding this request, and the
+	// revision's diff column is typed for the overlay — storing a field the
+	// schema does not declare would be invisible until it confused someone.
+	const diff = {
+		added: result.diff.added,
+		removed: result.diff.removed,
+		changed: result.diff.changed
+	};
+
 	const revisionId = writeRevision(scoreId, {
 		source: opts.source,
 		label: opts.label,
 		score: result.score,
 		ops,
-		diff: result.diff,
+		diff,
 		accepted: opts.accepted ?? true,
 		jobId: opts.jobId
 	});
@@ -205,7 +226,8 @@ export function commitOps(
 	return {
 		score: result.score,
 		revisionId,
-		diff: result.diff,
+		diff,
+		created: result.diff.created,
 		log: result.log,
 		errors: result.errors
 	};
@@ -247,7 +269,7 @@ export function mergeIntoScore(
 	// The fragment is built in the browser, so it is untrusted input like any
 	// other request body and goes through the same validator as an import.
 	const incoming = coerceScore(fragment, current.title);
-	const { score, addedIds, addedParts } = mergeParts(current.doc, incoming, {
+	const { score, addedIds, addedParts, addedPartIds } = mergeParts(current.doc, incoming, {
 		atTick: opts.atTick,
 		adoptGlobals: opts.adoptGlobals
 	});
@@ -270,6 +292,7 @@ export function mergeIntoScore(
 		score,
 		revisionId,
 		diff,
+		created: addedPartIds.map((id) => ({ kind: 'part' as const, id })),
 		log: [`${opts.label}: ${addedParts} part(s), ${addedIds.length} event(s)`],
 		errors: []
 	};

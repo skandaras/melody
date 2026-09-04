@@ -124,13 +124,15 @@ export const setSection: OpDef<{
 			existing.endTick = args.endTick;
 			if (args.color) existing.color = args.color;
 		} else {
-			score.sections.push({
+			const section = {
 				id: ctx.ids.next('section'),
 				name: args.name,
 				startTick: args.startTick,
 				endTick: args.endTick,
 				color: args.color
-			});
+			};
+			score.sections.push(section);
+			res.created = [{ kind: 'section', id: section.id, name: section.name }];
 		}
 		score.sections.sort((a, b) => a.startTick - b.startTick);
 		res.note = `Section "${args.name}" (${args.startTick}-${args.endTick})`;

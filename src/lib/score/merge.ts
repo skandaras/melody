@@ -32,6 +32,12 @@ export interface MergeResult {
 	/** Ids of everything that arrived, for the diff overlay. */
 	addedIds: string[];
 	addedParts: number;
+	/**
+	 * Ids of the parts created, in the order they arrived. The count alone is
+	 * enough to write a log line but not to refer to a part afterwards, which is
+	 * what a transcription seed needs so later stages can point at "the theme".
+	 */
+	addedPartIds: string[];
 }
 
 export function mergeParts(target: Score, incoming: Score, opts: MergeOptions = {}): MergeResult {
@@ -48,6 +54,7 @@ export function mergeParts(target: Score, incoming: Score, opts: MergeOptions = 
 	const ids = new IdFactory(collectIds(score));
 	const usedChannels = new Set(score.parts.map((p) => p.channel));
 	const addedIds: string[] = [];
+	const addedPartIds: string[] = [];
 
 	for (const source of incoming.parts) {
 		const part: Part = {
@@ -65,9 +72,10 @@ export function mergeParts(target: Score, incoming: Score, opts: MergeOptions = 
 		};
 		usedChannels.add(part.channel);
 		score.parts.push(part);
+		addedPartIds.push(part.id);
 	}
 
-	return { score, addedIds, addedParts: incoming.parts.length };
+	return { score, addedIds, addedParts: incoming.parts.length, addedPartIds };
 }
 
 /** Next channel that is free and is not the GM drum channel. */
