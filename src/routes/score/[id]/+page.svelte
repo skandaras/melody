@@ -11,48 +11,42 @@
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
+	import { ScoreSession } from '$lib/editor/session.svelte';
 	import { analyse } from '$lib/score/analyse';
 	import { secondsToTick, tempoAt } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
-	import type { Score, Selection } from '$lib/score/types';
+	import type { Score } from '$lib/score/types';
 	import type { PageServerData } from './$types';
 
 	let { data }: { data: PageServerData } = $props();
 
-	// Seeded from the load, then owned locally — every edit round-trips through
-	// /ops and comes back as a fresh document, so re-deriving from `data` would
-	// fight the write path. untrack() makes the "initial value only" explicit.
-	let score = $state<Score>(untrack(() => data.score.doc));
-	let title = $state(untrack(() => data.score.title));
-	let loadedId = untrack(() => data.score.id);
-	let selected = $state<Set<string>>(new Set());
-	let revisions = $state(untrack(() => data.revisions));
-	let pendingDiff = $state<{
-		added: string[];
-		removed: string[];
-		changed: string[];
-		revisionId: string;
-		label: string;
-	} | null>(null);
+	// The document, the selection and the write path all live in one store now,
+	// shared with Bench — two routes editing the same score must not grow two
+	// copies of this state, or the single write path stops being single.
+	// untrack() makes the "initial value only" explicit: every edit round-trips
+	// through /ops and comes back as a fresh document, so re-deriving from
+	// `data` would fight the write path.
+	// svelte-ignore state_referenced_locally
+	const session = new ScoreSession(untrack(() => data));
 
-	let busy = $state(false);
-	let error = $state('');
 	let scale = $state(1);
 
-	// SvelteKit reuses this component across /score/A → /score/B, so local state
-	// has to be re-seeded on navigation or the previous score's notes would be
+	// SvelteKit reuses this component across /score/A → /score/B, so the session
+	// has to be re-pointed on navigation or the previous score's notes would be
 	// rendered — and then saved — under the new score's id.
 	$effect(() => {
-		if (data.score.id === loadedId) return;
-		loadedId = data.score.id;
-		score = data.score.doc;
-		title = data.score.title;
-		revisions = data.revisions;
-		selected = new Set();
-		pendingDiff = null;
-		error = '';
+		if (session.isStale(data)) session.reseed(data);
 	});
+
+	// Read-only views, so the markup below reads the same as it did before the
+	// state moved out.
+	const score = $derived(session.doc);
+	const selected = $derived(session.selected);
+	const revisions = $derived(session.revisions);
+	const pendingDiff = $derived(session.pending);
+	const busy = $derived(session.busy);
+	const error = $derived(session.error);
 
 	// One synth per editor page, shared by the transport and the mixer: the
 	// AudioContext, the worklet and the soundfont are far too expensive to hold
@@ -118,35 +112,13 @@
 		root.dataset.playing = '';
 		return () => delete root.dataset.playing;
 	});
-	const selectionCount = $derived(selected.size);
+	const selectionCount = $derived(session.selectionCount);
 
 	/** What the AI and controls act on: explicit notes, else the whole score. */
-	const selection = $derived<Selection>(selected.size ? { noteIds: [...selected] } : {});
+	const selection = $derived(session.selection);
 
-	function onselect(ids: string[], additive: boolean) {
-		if (!additive) {
-			selected = new Set(ids);
-			return;
-		}
-		const next = new Set(selected);
-		for (const id of ids) {
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-		}
-		selected = next;
-	}
+	const onselect = (ids: string[], additive: boolean) => session.select(ids, additive);
 
-	async function post(path: string, body: unknown) {
-		const res = await fetch(path, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(body)
-		});
-		if (!res.ok) throw new Error((await res.text()) || res.statusText);
-		return res.json();
-	}
-
-	/** Apply operations through the one write path, so undo and diff work. */
 	let mode = $state<'select' | 'add'>('select');
 	let entry = $state<NoteEntry>({
 		duration: 480,
@@ -198,78 +170,11 @@
 		await runOps(ops, ops.length > 1 ? 'Moved notes' : 'Moved a note');
 	}
 
-	async function runOps(ops: Op[], label: string, source: 'user' | 'control' = 'user') {
-		busy = true;
-		error = '';
-		try {
-			const r = await post(`/api/scores/${data.score.id}/ops`, { ops, label, source });
-			score = r.doc;
-			await refreshHistory();
-			if (r.errors?.length) error = r.errors.map((e: { reason: string }) => e.reason).join('; ');
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function resolvePending(action: 'accept' | 'reject') {
-		if (!pendingDiff) return;
-		busy = true;
-		try {
-			const r = await post(`/api/scores/${data.score.id}/revisions`, {
-				action,
-				revisionId: pendingDiff.revisionId
-			});
-			score = r.doc;
-			pendingDiff = null;
-			selected = new Set();
-			await refreshHistory();
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		} finally {
-			busy = false;
-		}
-	}
-
-	/** Re-pull the revision list after anything that could have added one. */
-	async function refreshHistory() {
-		try {
-			const res = await fetch(`/api/scores/${data.score.id}/revisions`);
-			if (res.ok) revisions = (await res.json()).revisions;
-		} catch {
-			// History refresh is cosmetic; the next successful action retries.
-		}
-	}
-
-	/** Restore a revision — undo, redo and history clicks are all this. */
-	async function restore(revisionId: string) {
-		if (busy) return;
-		busy = true;
-		error = '';
-		try {
-			const r = await post(`/api/scores/${data.score.id}/revisions`, {
-				action: 'restore',
-				revisionId
-			});
-			score = r.doc;
-			pendingDiff = null;
-			selected = new Set();
-			await refreshHistory();
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function saveTitle() {
-		await fetch(`/api/scores/${data.score.id}`, {
-			method: 'PATCH',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ title })
-		});
-	}
+	const runOps = (ops: Op[], label: string, source: 'user' | 'control' = 'user') =>
+		session.runOps(ops, label, source);
+	const resolvePending = (action: 'accept' | 'reject') => session.resolvePending(action);
+	const restore = (revisionId: string) => session.restore(revisionId);
+	const saveTitle = () => session.saveTitle();
 
 	async function addPart() {
 		await runOps(
@@ -278,48 +183,13 @@
 		);
 	}
 
-	/** A transcription arrives as a whole fragment, not as ops — it carries rests
-	 *  and ties, which insert_notes cannot express. It lands staged, so the
-	 *  existing accept/reject review covers it. */
-	async function acceptTranscription(fragment: Score, label: string) {
-		busy = true;
-		error = '';
-		try {
-			const r = await post(`/api/scores/${data.score.id}/transcribe`, {
-				fragment,
-				label: `Transcribed ${label}`
-			});
-			score = r.doc;
-			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Transcribed ${label}` };
-			await refreshHistory();
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-			throw e;
-		} finally {
-			busy = false;
-		}
-	}
-
-	/** A clip carries rests and ties like a transcription, so it goes in through
-	 *  the same merge path rather than as ops. */
-	async function insertClip(fragment: Score, label: string) {
-		busy = true;
-		error = '';
-		try {
-			const r = await post(`/api/scores/${data.score.id}/transcribe`, {
-				fragment,
-				label: `Inserted ${label}`
-			});
-			score = r.doc;
-			pendingDiff = { ...r.diff, revisionId: r.revisionId, label: `Inserted ${label}` };
-			await refreshHistory();
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-			throw e;
-		} finally {
-			busy = false;
-		}
-	}
+	/** Both a transcription and a clip carry rests and ties, which insert_notes
+	 *  cannot express, so both go in through the merge path and land staged for
+	 *  the existing accept/reject review. */
+	const acceptTranscription = (fragment: Score, label: string) =>
+		session.merge(fragment, `Transcribed ${label}`);
+	const insertClip = (fragment: Score, label: string) =>
+		session.merge(fragment, `Inserted ${label}`);
 
 	async function removePart(partId: string) {
 		const part = score.parts.find((p) => p.id === partId);
@@ -331,7 +201,7 @@
 	async function deleteSelected() {
 		if (!selected.size) return;
 		await runOps([{ op: 'delete_notes', args: { noteIds: [...selected] } }], 'Deleted notes');
-		selected = new Set();
+		session.clearSelection();
 	}
 
 	async function nudge(semitones: number) {
@@ -353,7 +223,7 @@
 			e.preventDefault();
 			void nudge(e.shiftKey ? -12 : -1);
 		} else if (e.key === 'Escape') {
-			selected = new Set();
+			session.clearSelection();
 		} else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
 			e.preventDefault();
 			// The second-newest revision is the state one step back, whatever
@@ -365,12 +235,12 @@
 
 </script>
 
-<svelte:head><title>{title} · melody</title></svelte:head>
+<svelte:head><title>{session.title} · melody</title></svelte:head>
 <svelte:window {onkeydown} />
 
 <div class="editor">
 	<aside class="left">
-		<input class="title" bind:value={title} onblur={saveTitle} aria-label="Score title" />
+		<input class="title" bind:value={session.title} onblur={saveTitle} aria-label="Score title" />
 
 		<section>
 			<h2>Audio in</h2>
@@ -441,6 +311,10 @@
 				{/if}
 			</span>
 			<div class="spacer"></div>
+			<!-- The manual surface. A link rather than a mode, because Bench is a
+			     different set of tools rather than a different state of these
+			     ones — and once the stages exist it is reached from them. -->
+			<a class="btn bench" href="/score/{data.score.id}/bench">Bench</a>
 			<ExportMenu {score} soundfontUrl={data.soundfontUrl} renderSampleRate={data.audio.renderSampleRate} />
 			<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out"
 				>−</button
@@ -496,10 +370,8 @@
 				{selection}
 				{selectionCount}
 				{busy}
-				onresult={(r) => {
-					score = r.doc;
-					pendingDiff = { ...r.diff, revisionId: r.revisionId, label: r.label };
-				}}
+				onresult={(r) =>
+					session.adopt(r.doc, { ...r.diff, revisionId: r.revisionId, label: r.label })}
 			/>
 		</section>
 
@@ -509,14 +381,9 @@
 			controls={data.controls}
 			{selection}
 			{busy}
-			onapplied={(r) => {
-				score = r.doc;
-				pendingDiff = null;
-			}}
-			onstaged={(r) => {
-				score = r.doc;
-				pendingDiff = { ...r.diff, revisionId: r.revisionId, label: r.label };
-			}}
+			onapplied={(r) => session.adopt(r.doc, null)}
+			onstaged={(r) =>
+				session.adopt(r.doc, { ...r.diff, revisionId: r.revisionId, label: r.label })}
 		/>
 	</aside>
 </div>
@@ -598,6 +465,11 @@
 	}
 	.spacer {
 		flex: 1;
+	}
+	.btn.bench {
+		text-decoration: none;
+		display: inline-flex;
+		align-items: center;
 	}
 	.zoom {
 		min-width: 3.2em;
