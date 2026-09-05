@@ -97,6 +97,7 @@ export {
 	type TaskOptions
 } from '$lib/ai/config';
 import type { TaskOptions } from '$lib/ai/config';
+import { FIRST_STAGE, type Brief, type PipelineState, type Plan, type Stage } from '$lib/pipeline/types';
 
 export const taskConfigs = sqliteTable('task_configs', {
 	task: text('task').primaryKey(),
@@ -130,6 +131,18 @@ export const scores = sqliteTable(
 		/** The whole document. Small enough (a few hundred KB at worst) that
 		 *  storing it as one blob beats normalising notes into rows. */
 		doc: text('doc', { mode: 'json' }).notNull().$type<Score>(),
+		/**
+		 * Where this score is in the composition pipeline.
+		 *
+		 * Defaulted rather than nullable so every row — including every one that
+		 * predates the pipeline — answers the question. A score nobody has taken
+		 * anywhere is at the brief, which is true rather than a placeholder.
+		 */
+		stage: text('stage').notNull().default(FIRST_STAGE).$type<Stage>(),
+		/** What was asked for. Null until someone writes one. */
+		brief: text('brief', { mode: 'json' }).$type<Brief>(),
+		/** The approved blueprint. Null until the plan stage produces one. */
+		plan: text('plan', { mode: 'json' }).$type<Plan>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
@@ -163,6 +176,16 @@ export const revisions = sqliteTable(
 			changed: string[];
 		}>(),
 		snapshotGz: blob('snapshot_gz'),
+		/**
+		 * Where the pipeline stood when this revision was written.
+		 *
+		 * Restoring puts the document back and has to put this back with it:
+		 * undoing past a plan approval would otherwise leave the score claiming
+		 * to be at the melody stage with an approved plan, while the parts and
+		 * sections that approval created were gone. One column rather than
+		 * three because it is one fact, and it keeps restore a single read.
+		 */
+		pipeline: text('pipeline', { mode: 'json' }).$type<PipelineState>(),
 		/** AI revisions land pending; the user accepts or rejects them. */
 		accepted: integer('accepted', { mode: 'boolean' }).notNull().default(true),
 		jobId: text('job_id'),

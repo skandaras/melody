@@ -7,7 +7,14 @@
 	let creating = $state(false);
 	let error = $state('');
 
-	async function create() {
+	/**
+	 * Two ways in while the pipeline is being built.
+	 *
+	 * The described path is where melody is going, but it only reaches the
+	 * editor until the plan stage lands — so the blank score stays offered
+	 * rather than everyone being routed through a half-built flow.
+	 */
+	async function create(to: 'brief' | 'editor') {
 		creating = true;
 		error = '';
 		try {
@@ -18,7 +25,7 @@
 			});
 			if (!res.ok) throw new Error(await res.text());
 			const { id } = await res.json();
-			await goto(`/score/${id}`);
+			await goto(to === 'brief' ? `/score/${id}/brief` : `/score/${id}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			creating = false;
@@ -44,9 +51,12 @@
 
 <header class="head">
 	<h1>Scores</h1>
-	<button class="btn primary" onclick={create} disabled={creating}>
-		{creating ? 'Creating…' : 'New score'}
-	</button>
+	<div class="actions">
+		<button class="btn" onclick={() => create('editor')} disabled={creating}> Blank score </button>
+		<button class="btn primary" onclick={() => create('brief')} disabled={creating}>
+			{creating ? 'Creating…' : 'Describe a piece'}
+		</button>
+	</div>
 </header>
 
 {#if error}
@@ -57,8 +67,8 @@
 	<div class="empty">
 		<p class="lead">Nothing here yet.</p>
 		<p>
-			Start a score, then hum, play or drop in a recording — melody will transcribe it into
-			notation you can edit and shape.
+			Describe a piece and melody works out from there — or hum, play or drop in a recording and
+			it becomes notation you can edit and shape.
 		</p>
 	</div>
 {:else}
@@ -80,6 +90,10 @@
 {/if}
 
 <style>
+	.actions {
+		display: flex;
+		gap: var(--space-2);
+	}
 	.head {
 		display: flex;
 		align-items: center;

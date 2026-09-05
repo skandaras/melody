@@ -1,4 +1,5 @@
 import type { Op } from '$lib/score/apply';
+import type { CreatedEntity } from '$lib/score/ops/types';
 import type { Score, Selection } from '$lib/score/types';
 import { toggleSelection } from './selection.js';
 
@@ -60,6 +61,16 @@ export class ScoreSession {
 	busy = $state(false);
 	error = $state('');
 
+	/**
+	 * Parts and sections the last write brought into existence.
+	 *
+	 * The Brief stage needs this to record which part a transcribed seed became
+	 * — ids are deterministic counters, so they look predictable right up until
+	 * a score already has a part in it, which is the normal case. F0 added
+	 * `created` to the write path for exactly this.
+	 */
+	lastCreated = $state.raw<CreatedEntity[]>([]);
+
 	constructor(seed: SessionSeed) {
 		this.reseed(seed);
 	}
@@ -87,6 +98,7 @@ export class ScoreSession {
 		this.revisions = seed.revisions;
 		this.selected = new Set();
 		this.pending = null;
+		this.lastCreated = [];
 		this.error = '';
 	}
 
@@ -110,6 +122,7 @@ export class ScoreSession {
 		try {
 			const r = await this.#post(`/api/scores/${this.scoreId}/ops`, { ops, label, source });
 			this.doc = r.doc;
+			this.lastCreated = r.created ?? [];
 			await this.refreshHistory();
 			if (r.errors?.length) {
 				this.error = r.errors.map((e: { reason: string }) => e.reason).join('; ');
@@ -174,6 +187,7 @@ export class ScoreSession {
 		try {
 			const r = await this.#post(`/api/scores/${this.scoreId}/transcribe`, { fragment, label });
 			this.doc = r.doc;
+			this.lastCreated = r.created ?? [];
 			this.pending = { ...r.diff, revisionId: r.revisionId, label };
 			await this.refreshHistory();
 		} catch (e) {
