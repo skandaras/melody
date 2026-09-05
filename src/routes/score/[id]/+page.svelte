@@ -12,7 +12,7 @@
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { analyse } from '$lib/score/analyse';
-	import { secondsToTick } from '$lib/score/measures';
+	import { secondsToTick, tempoAt } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
 	import type { Score, Selection } from '$lib/score/types';
@@ -88,6 +88,36 @@
 	const playheadTick = $derived(
 		player.transport.playing ? secondsToTick(score, player.transport.position) : null
 	);
+
+	/**
+	 * Tell the atmosphere layer that something is sounding, and how fast.
+	 *
+	 * Deliberately derived from a boolean and a number rather than read off
+	 * `player.transport` inside the effect: the store replaces that object on
+	 * every animation frame, so an effect depending on it would rewrite these
+	 * attributes sixty times a second. Depending on the derived values instead
+	 * means it runs only when playback actually starts or stops.
+	 *
+	 * The breathing itself is a CSS animation the compositor owns; this only
+	 * starts and stops it. Published on the document element rather than passed
+	 * down, because the fog lives in the root layout, which has no view of this
+	 * page's player.
+	 */
+	const playing = $derived(player.transport.playing);
+	/** The opening tempo, not the tempo under the playhead — following a tempo
+	 *  map would mean recomputing this mid-playback for a background effect. */
+	const openingBpm = $derived(tempoAt(score, 0).bpm);
+
+	$effect(() => {
+		const root = document.documentElement;
+		if (!playing) {
+			delete root.dataset.playing;
+			return;
+		}
+		root.style.setProperty('--bpm', String(openingBpm));
+		root.dataset.playing = '';
+		return () => delete root.dataset.playing;
+	});
 	const selectionCount = $derived(selected.size);
 
 	/** What the AI and controls act on: explicit notes, else the whole score. */

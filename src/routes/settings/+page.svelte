@@ -192,6 +192,22 @@
 				</em>
 			</span>
 		</label>
+
+		<label class="toggle">
+			<input
+				type="checkbox"
+				checked={theme.atmosphere}
+				onchange={(e) => (theme = { ...theme, atmosphere: e.currentTarget.checked })}
+			/>
+			<span>
+				Drifting fog behind the interface
+				<em>
+					A slow-moving haze mixed from the accent colour, which breathes in time with
+					playback. Costs no measurable processing — it never touches the score itself,
+					and it stops moving if your system asks for reduced motion.
+				</em>
+			</span>
+		</label>
 	</section>
 
 	<section>

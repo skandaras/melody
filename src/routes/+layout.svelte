@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import Atmosphere from '$lib/components/Atmosphere.svelte';
 	import { themeCss } from '$lib/theme';
 	import type { Snippet } from 'svelte';
 	import type { LayoutServerData } from './$types';
@@ -27,6 +28,10 @@
 	{@html `<style id="melody-theme">${themeCss(data.theme)}</style>`}
 	<meta name="theme-color" content={data.theme.bg} />
 </svelte:head>
+
+{#if data.theme.atmosphere}
+	<Atmosphere />
+{/if}
 
 <div class="shell">
 	<nav class="rail">
