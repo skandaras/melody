@@ -614,3 +614,45 @@ describe('validation', () => {
 		expect(scoreEndTick(score!)).toBe(scoreEndTick(s));
 	});
 });
+
+/**
+ * Two op defects the plan stage makes routine. Both were reachable before it —
+ * the agent loop can call either op — but approving a plan is what turns them
+ * from possible into ordinary.
+ */
+describe('op hardening', () => {
+	it('allocates a sixteenth non-drum part instead of hanging', () => {
+		// Fifteen non-drum channels exist (0-8 and 10-15). With all fifteen held,
+		// an unbounded search never finds a free one and never exits. This test
+		// does not fail without the fix — it hangs, which is the point.
+		let score = emptyScore();
+		for (let i = 0; i < 16; i++) {
+			score = applyOps(score, [
+				{ op: 'add_part', args: { name: `Part ${i}`, instrument: 'Violin' } }
+			]).score;
+		}
+		expect(score.parts).toHaveLength(16);
+		// The sixteenth shares a channel rather than claiming the drum channel.
+		expect(score.parts.every((p) => p.channel !== 9)).toBe(true);
+	});
+
+	it('refuses set_section with an id that does not resolve', () => {
+		const score = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]).score;
+		expect(score.sections).toHaveLength(1);
+
+		// Updating a section that has since gone must not quietly create a
+		// second one beside the one the caller meant to change.
+		const after = applyOps(score, [
+			{
+				op: 'set_section',
+				args: { name: 'Verse', startTick: 0, endTick: 3840, sectionId: 'section-gone' }
+			}
+		]);
+		expect(after.score.sections).toHaveLength(1);
+		expect(after.score.sections[0].endTick).toBe(1920);
+		// No log line, which is how the agent loop knows to correct itself.
+		expect(after.log).toEqual([]);
+	});
+});

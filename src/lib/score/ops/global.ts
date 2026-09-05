@@ -118,6 +118,15 @@ export const setSection: OpDef<{
 	apply(score, args, ctx) {
 		const res = emptyResult();
 		const existing = args.sectionId ? score.sections.find((s) => s.id === args.sectionId) : undefined;
+
+		// An id that was supplied and did not resolve is a mistake, not a request
+		// to create. Falling through would mint a second section alongside the one
+		// the caller meant to update — which is how re-approving an edited plan
+		// would end up with two of everything. Returning an empty result writes no
+		// log line, and the agent loop already reads a log-less op as an error to
+		// correct rather than as success.
+		if (args.sectionId && !existing) return res;
+
 		if (existing) {
 			existing.name = args.name;
 			existing.startTick = args.startTick;

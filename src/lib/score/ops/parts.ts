@@ -33,13 +33,22 @@ export const addPart: OpDef<{
 		const isDrum = args.isDrum ?? /drum|percussion|kit/i.test(args.instrument);
 
 		// Channel 9 is the GM drum channel; everything else takes the next free
-		// non-drum channel. Beyond 16 parts we wrap, which is a playback
-		// limitation rather than a notation one.
+		// non-drum channel.
+		//
+		// The search is bounded rather than "keep going until one is free":
+		// there are fifteen non-drum channels, so once fifteen parts hold them
+		// all, every candidate satisfies the condition and an unbounded loop
+		// never exits — a hang inside a request handler rather than the wrap it
+		// looks like. Past that we share a channel, which costs correct playback
+		// for the sixteenth part and nothing else. Notation is unaffected either
+		// way; channels are a MIDI limit, not a musical one.
 		const used = new Set(score.parts.map((p) => p.channel));
 		let channel = 9;
 		if (!isDrum) {
 			channel = 0;
-			while (used.has(channel) || channel === 9) channel = (channel + 1) % 16;
+			for (let i = 0; i < 16 && (used.has(channel) || channel === 9); i++) {
+				channel = (channel + 1) % 16;
+			}
 		}
 
 		const part: Part = {

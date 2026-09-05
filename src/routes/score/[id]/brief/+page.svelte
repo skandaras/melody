@@ -38,6 +38,17 @@
 	let error = $state('');
 
 	const hasSeed = $derived(Boolean(brief.seedPartId));
+
+	/**
+	 * Where the escape hatch actually goes.
+	 *
+	 * Always the bare score route, which routes by stage — so for a score that
+	 * has already moved on (reached from the plan's "Edit the brief") it lands
+	 * on the plan, not the editor. Only the label has to know that.
+	 */
+	const onwardLabel = $derived(
+		data.pipeline.stage === 'brief' ? 'Skip to the editor' : 'Back without saving'
+	);
 	const canContinue = $derived(isBriefUsable(brief) && !saving);
 
 	/**
@@ -67,9 +78,9 @@
 			});
 			if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
-			// The plan stage does not exist yet, so continuing hands off to the
-			// editor. When it does, this becomes /plan and the brief finally has
-			// a consumer.
+			// Continuing advances the stage, and the score route routes by stage —
+			// so going through the front door lands wherever that stage lives
+			// without this page having to know. Today that is the plan.
 			await goto(`/score/${data.score.id}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -183,7 +194,7 @@
 	{/if}
 
 	<footer>
-		<a class="skip" href="/score/{data.score.id}">Skip to the editor</a>
+		<a class="skip" href="/score/{data.score.id}">{onwardLabel}</a>
 		<div class="spacer"></div>
 		<button class="btn" onclick={() => save(false)} disabled={saving}>Save draft</button>
 		<button class="btn primary" onclick={() => save(true)} disabled={!canContinue}>

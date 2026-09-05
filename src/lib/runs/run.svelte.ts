@@ -55,6 +55,18 @@ export class Run {
 	/** Set for a job-backed run, so it can be cancelled server-side. */
 	jobId: string | null = null;
 
+	/**
+	 * The last `result` payload, verbatim.
+	 *
+	 * `onResult` below answers "a turn produced a staged document", which is the
+	 * editor's question and not everyone's — a plan run produces a plan and no
+	 * document at all, so it would never fire. Rather than widen a callback three
+	 * callers depend on, the raw payload is offered here for whoever wants
+	 * something else out of it. Progress state stays in RunState; this is not
+	 * progress.
+	 */
+	lastResult = $state.raw<Record<string, unknown> | null>(null);
+
 	#source: EventSource | null = null;
 	#watchdog: ReturnType<typeof setTimeout> | null = null;
 	/** Cancels a local (worker-backed) run. Jobs cancel over HTTP instead. */
@@ -70,6 +82,7 @@ export class Run {
 		this.#teardown();
 		this.state = emptyRun();
 		this.jobId = null;
+		this.lastResult = null;
 	}
 
 	/** Fold one event in. */
@@ -114,6 +127,7 @@ export class Run {
 		// document to the caller.
 		source.addEventListener('result', (e) => {
 			const data = parse(e);
+			this.lastResult = data ?? null;
 			this.push({ type: 'result', data });
 			if (data?.doc && typeof data.revisionId === 'string') {
 				onResult?.({

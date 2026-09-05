@@ -6,6 +6,7 @@ import {
 	isStage,
 	nextStage,
 	pipelineOf,
+	stageRoute,
 	STAGES,
 	type Stage
 } from './types.js';
@@ -85,5 +86,29 @@ describe('isBriefUsable', () => {
 		// Humming eight bars is a complete brief; requiring prose as well would
 		// make the audio path worse than it is today.
 		expect(isBriefUsable({ description: '', seedPartId: 'p1' })).toBe(true);
+	});
+});
+
+describe('stageRoute', () => {
+	it('never routes the brief, which is every legacy score', () => {
+		// The single most important line in the routing rule. `brief` is the
+		// column default, so a score that predates the pipeline reads as being
+		// at it — sending those to a stage page would strand every existing
+		// score behind a form asking what it should be.
+		expect(stageRoute('brief')).toBeNull();
+		expect(FIRST_STAGE).toBe('brief');
+		expect(stageRoute(FIRST_STAGE)).toBeNull();
+	});
+
+	it('routes the plan to its own page', () => {
+		expect(stageRoute('plan')).toBe('plan');
+	});
+
+	it('falls through for stages that have no page yet', () => {
+		// Melody, arrangement, refine and finish all land in the editor until
+		// each one is built. Falling through is correct; a dead link is not.
+		for (const stage of ['melody', 'arrangement', 'refine', 'finish'] as const) {
+			expect(stageRoute(stage)).toBeNull();
+		}
 	});
 });

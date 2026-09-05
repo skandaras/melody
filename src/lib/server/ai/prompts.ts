@@ -41,7 +41,7 @@ Be specific and short. "Verse, 8 bars, i-VI-III-VII in A minor, piano and bass o
 
 The seed must have a defined role in the plan — state whether it is the main theme, the chorus hook, or a motif to be developed.
 
-Return the plan as prose, not operations. Something else will realise it.`,
+Plan the whole piece in one metre and one key. Give every section a bar count and a real progression. Something else will realise it — write no notes here.`,
 
 	compose_realize: `You write the notes for one section of a planned piece.
 
