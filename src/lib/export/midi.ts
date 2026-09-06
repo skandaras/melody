@@ -1,4 +1,4 @@
-import { keySigAt } from '$lib/score/measures';
+import { keySigAt, tickToSeconds } from '$lib/score/measures';
 import { isNote } from '$lib/score/query';
 import type { Note, Score } from '$lib/score/types';
 
@@ -218,16 +218,11 @@ export function scoreDurationSeconds(score: Score): number {
 		}
 	}
 	if (endTick === 0) return 0;
-
-	const marks = [...score.tempoMap].sort((a, b) => a.tick - b.tick);
-	let seconds = 0;
-	for (let i = 0; i < marks.length; i++) {
-		const from = marks[i].tick;
-		const to = Math.min(marks[i + 1]?.tick ?? endTick, endTick);
-		if (to <= from) continue;
-		seconds += ((to - from) / score.ppq) * (60 / Math.max(1, marks[i].bpm));
-	}
-	return seconds;
+	// Delegated rather than walked again here: two implementations of the same
+	// tempo arithmetic disagreed whenever the map had no mark at tick 0 — this
+	// one charged the leading region nothing, the other charged it at the
+	// default tempo — and the playhead is derived from the other one.
+	return tickToSeconds(score, endTick);
 }
 
 export { keySigAt };

@@ -8,6 +8,13 @@
       "when": 1786193502425,
       "tag": "0000_keen_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788572633970,
+      "tag": "0001_amazing_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

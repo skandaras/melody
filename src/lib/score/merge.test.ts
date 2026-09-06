@@ -150,3 +150,25 @@ describe('mergeParts', () => {
 		expect(score.parts).toHaveLength(1);
 	});
 });
+
+describe('created parts', () => {
+	// addedParts is a count, which is enough to write a log line and not enough
+	// to refer to a part afterwards. The Brief stage needs to record which part
+	// the transcription became so later stages can point at "the theme".
+	it('returns the ids of the parts it added, matching the count', () => {
+		const target = withPart('Target');
+		const incoming = withPart('Incoming', 'Flute');
+
+		const before = target.parts.map((p) => p.id);
+		const r = mergeParts(target, incoming);
+
+		expect(r.addedPartIds).toHaveLength(r.addedParts);
+		expect(r.addedPartIds).toEqual(r.score.parts.map((p) => p.id).filter((id) => !before.includes(id)));
+	});
+
+	it('returns an empty list when nothing arrives', () => {
+		const r = mergeParts(withPart('Target'), emptyScore('Empty'));
+		expect(r.addedParts).toBe(0);
+		expect(r.addedPartIds).toEqual([]);
+	});
+});

@@ -1,4 +1,6 @@
+import { redirect } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/api';
+import { stageRoute } from '$lib/pipeline/types';
 import { listRevisions, loadScore } from '$lib/server/scores';
 import { listControls } from '$lib/server/controls/registry';
 import {
@@ -15,6 +17,12 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = ({ locals, params }) => {
 	const user = requireUser(locals);
 	const row = loadScore(params.id, user.id);
+
+	// A score that belongs to a stage with its own page is sent there. The table
+	// lives in $lib/pipeline so the rule that keeps legacy scores out of it is
+	// testable rather than merely commented.
+	const segment = stageRoute(row.pipeline.stage);
+	if (segment) redirect(307, `/score/${params.id}/${segment}`);
 	const audio = getSetting<AudioSettings>('audio', DEFAULT_AUDIO);
 	const retention = getSetting<RetentionSettings>('retention', DEFAULT_RETENTION);
 	return {

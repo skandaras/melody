@@ -118,4 +118,70 @@ describe('themes', () => {
 			);
 		});
 	});
+
+	describe('atmosphere', () => {
+		it('is off in every preset but Understory', () => {
+			// A drifting haze over a bright white interface reads as a rendering
+			// fault, so it belongs to a palette chosen for it rather than to
+			// everyone by default.
+			for (const [name, preset] of Object.entries(PRESETS)) {
+				expect(preset.atmosphere).toBe(name === 'Understory');
+			}
+		});
+
+		it('survives normalisation in both states', () => {
+			expect(normalizeTheme({ ...PRESETS.Understory }).atmosphere).toBe(true);
+			expect(normalizeTheme({ ...PRESETS.Studio }).atmosphere).toBe(false);
+		});
+
+		it('falls back to the default for a theme saved before the field existed', () => {
+			// Every stored theme predates this field, so this is the upgrade path
+			// rather than an edge case.
+			const old = { bg: '#111111', fg: '#eeeeee' };
+			expect(normalizeTheme(old).atmosphere).toBe(DEFAULT_THEME.atmosphere);
+		});
+
+		it('ignores a non-boolean rather than emitting one', () => {
+			expect(normalizeTheme({ atmosphere: 'yes' }).atmosphere).toBe(DEFAULT_THEME.atmosphere);
+		});
+	});
+
+	describe('the Understory preset', () => {
+		it('keeps the score on a light sheet', () => {
+			// The point of a dark wooded interface is that the score reads as a
+			// lit page inside it.
+			const t = PRESETS.Understory;
+			expect(t.lightScorePaper).toBe(true);
+			expect(themeCss(t)).toContain('--notation:#1a1a1a');
+		});
+
+		it('is the default', () => {
+			expect(DEFAULT_THEME).toBe(PRESETS.Understory);
+		});
+
+		it('does not reuse a green for added notes', () => {
+			// diffAdd is green in every other preset and would disappear into
+			// green chrome. These three mark every AI review, so they have to
+			// stay distinguishable from the background and from each other.
+			const { diffAdd, diffRemove, diffChange, accent, bg } = PRESETS.Understory;
+			expect(new Set([diffAdd, diffRemove, diffChange]).size).toBe(3);
+			for (const c of [diffAdd, diffRemove, diffChange]) {
+				expect(c).not.toBe(accent);
+				expect(c).not.toBe(bg);
+			}
+			// Specifically not the green the other dark presets use, which is
+			// the one that would vanish here.
+			expect(diffAdd.toLowerCase()).not.toBe('#4ade80');
+
+			// And green-dominant at all: in a green interface, "added" has to be
+			// carried by hue difference rather than by being another green.
+			const [r, g, b] = [1, 3, 5].map((i) => parseInt(diffAdd.slice(i, i + 2), 16));
+			expect(g > r && g > b).toBe(false);
+		});
+
+		it('is dark, so it is not listed as a light preset', async () => {
+			const { LIGHT_PRESETS } = await import('./theme.js');
+			expect(LIGHT_PRESETS.has('Understory')).toBe(false);
+		});
+	});
 });

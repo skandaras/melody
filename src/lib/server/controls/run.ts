@@ -3,7 +3,7 @@ import type { Op } from '$lib/score/apply.js';
 import type { Selection } from '$lib/score/types.js';
 import { checkBudget } from '../budget.js';
 import { buildEditContext } from '../ai/context.js';
-import { createJob, emit, finishJob, recordUsage } from '../ai/jobs.js';
+import { createJob, emit, finishJob, timedOut, recordUsage } from '../ai/jobs.js';
 import { runAgentLoop } from '../ai/loop.js';
 import { NoModelError, NoProviderError, resolveTask } from '../ai/provider.js';
 import { findSkill, skillBlock } from '../ai/skills.js';
@@ -109,6 +109,8 @@ export function runControl(opts: RunControlOptions): ControlResult {
 
 	void (async () => {
 		try {
+			emit(jobId, 'plan', { phases: [{ id: 'control', label: control.name }] });
+			emit(jobId, 'phase', { id: 'control', index: 0, total: 1, label: control.name });
 			emit(jobId, 'status', { message: `${control.name}…` });
 
 			const styleRef = ai.useStyleSkills ? styleReference(params) : '';
@@ -135,6 +137,7 @@ export function runControl(opts: RunControlOptions): ControlResult {
 				reasoning: resolved.options.reasoning,
 				tools: control.kind === 'agent' ? agentTools() : opTools(),
 				signal: abort,
+				phase: { id: 'control', label: control.name },
 				onEvent: (event) => emit(jobId, event.type, event)
 			});
 
@@ -147,14 +150,37 @@ export function runControl(opts: RunControlOptions): ControlResult {
 				status: 'ok'
 			});
 
-			if (result.ops.length === 0) {
+			// See run.ts: the loop reports an abort as an ordinary return, so a
+			// cancelled control would otherwise still commit its edits.
+			if (result.stopReason === 'aborted') {
+				// An abort is either a person pressing Cancel or the job's own
+				// wall-clock ceiling. Both unwind identically, so ask which it was
+				// rather than adding a second writer of the terminal status.
+				const outcome = timedOut(jobId) ? 'timed_out' : 'cancelled';
 				emit(jobId, 'result', {
 					ops: 0,
+					outcome,
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
 					summary: result.summary,
 					warnings: result.warnings,
 					stopReason: result.stopReason
 				});
-				finishJob(jobId, 'done');
+				finishJob(jobId, outcome);
+				return;
+			}
+
+			if (result.ops.length === 0) {
+				emit(jobId, 'result', {
+					ops: 0,
+					outcome: result.stopReason === 'no_effect' ? 'no_effect' : 'done',
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
+					summary: result.summary,
+					warnings: result.warnings,
+					stopReason: result.stopReason
+				});
+				finishJob(jobId, result.stopReason === 'no_effect' ? 'no_effect' : 'done');
 				return;
 			}
 
@@ -169,11 +195,15 @@ export function runControl(opts: RunControlOptions): ControlResult {
 
 			emit(jobId, 'result', {
 				ops: result.ops.length,
+				outcome: 'done',
+				opsApplied: result.ops.length,
+				opsRejected: result.rejectedOps,
 				summary: result.summary,
 				warnings: result.warnings,
 				stopReason: result.stopReason,
 				revisionId: commit.revisionId,
 				diff: commit.diff,
+				created: commit.created,
 				doc: commit.score
 			});
 			finishJob(jobId, 'done');

@@ -62,6 +62,9 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		doc: result.score,
 		revisionId: result.revisionId,
 		diff: result.diff,
+		// Which parts and sections it made. F0 computes this; without
+		// forwarding it a caller cannot tell what it just created.
+		created: result.created,
 		log: result.log
 	});
 };

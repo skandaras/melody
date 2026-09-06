@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { emptyScore, PPQ, type Score } from './types.js';
 import { applyOps } from './apply.js';
 import { validateScore } from './validate.js';
-import { measuresOf, measureTicks, timeSigAt, scoreEndTick } from './measures.js';
+import {
+	measuresOf,
+	measureTicks,
+	timeSigAt,
+	scoreEndTick,
+	secondsToTick,
+	tickToSeconds
+} from './measures.js';
 import { detectKey, nameChord, analyse, summarise } from './analyse.js';
 import { resolveSelection, findNote } from './query.js';
 import {
@@ -327,6 +334,136 @@ describe('operations', () => {
 	});
 });
 
+describe('ticks and seconds', () => {
+	// The playhead needs seconds→ticks and nothing walked that way before. Both
+	// directions honour the tempo map, so a piece that speeds up halfway stays
+	// in sync rather than drifting from the change onward.
+	const at = (bpm: number, tick = 0) => ({ tick, bpm });
+
+	it('converts at a single tempo', () => {
+		const s = { ...emptyScore(), tempoMap: [at(120)] };
+		// 120bpm is two quarters a second, so one quarter (PPQ ticks) is 0.5s.
+		expect(tickToSeconds(s, PPQ)).toBeCloseTo(0.5, 6);
+		expect(secondsToTick(s, 0.5)).toBe(PPQ);
+	});
+
+	it('is zero at zero, in both directions', () => {
+		const s = { ...emptyScore(), tempoMap: [at(90)] };
+		expect(tickToSeconds(s, 0)).toBe(0);
+		expect(secondsToTick(s, 0)).toBe(0);
+	});
+
+	it('treats negative input as the start rather than extrapolating backwards', () => {
+		const s = { ...emptyScore(), tempoMap: [at(90)] };
+		expect(tickToSeconds(s, -500)).toBe(0);
+		expect(secondsToTick(s, -3)).toBe(0);
+	});
+
+	it('honours a tempo change mid-piece', () => {
+		// Four quarters at 120 (2s), then everything after at 60 (1s a quarter).
+		const s = { ...emptyScore(), tempoMap: [at(120), at(60, PPQ * 4)] };
+
+		expect(tickToSeconds(s, PPQ * 4)).toBeCloseTo(2, 6);
+		// Two more quarters at half the speed is another two seconds.
+		expect(tickToSeconds(s, PPQ * 6)).toBeCloseTo(4, 6);
+		expect(secondsToTick(s, 4)).toBe(PPQ * 6);
+	});
+
+	it('round-trips across a multi-tempo map', () => {
+		const s = {
+			...emptyScore(),
+			tempoMap: [at(72), at(144, PPQ * 8), at(96, PPQ * 20)]
+		};
+		for (const tick of [0, 240, PPQ * 3, PPQ * 8, PPQ * 12, PPQ * 20, PPQ * 33]) {
+			expect(secondsToTick(s, tickToSeconds(s, tick))).toBe(tick);
+		}
+	});
+
+	it('keeps going past the last tempo mark instead of clamping', () => {
+		// Otherwise the playhead stops on the final mark and a trailing rest
+		// plays with nothing moving.
+		const s = { ...emptyScore(), tempoMap: [at(120), at(60, PPQ * 4)] };
+		const far = tickToSeconds(s, PPQ * 100);
+		expect(far).toBeGreaterThan(tickToSeconds(s, PPQ * 50));
+		expect(secondsToTick(s, far)).toBe(PPQ * 100);
+	});
+
+	it('survives a tempo map that does not start at zero', () => {
+		// coerceScore guarantees a mark at 0, but this is arithmetic that would
+		// silently produce a negative tick rather than fail loudly.
+		const s = { ...emptyScore(), tempoMap: [{ tick: PPQ * 4, bpm: 60 }] };
+		expect(tickToSeconds(s, 0)).toBe(0);
+		expect(secondsToTick(s, 0)).toBe(0);
+		expect(secondsToTick(s, 1)).toBeGreaterThan(0);
+	});
+
+	it('does not divide by zero on a nonsense tempo', () => {
+		const s = { ...emptyScore(), tempoMap: [{ tick: 0, bpm: 0 }] };
+		expect(Number.isFinite(tickToSeconds(s, PPQ))).toBe(true);
+		expect(Number.isFinite(secondsToTick(s, 1))).toBe(true);
+	});
+});
+
+describe('created entities', () => {
+	// Approving a composition plan emits add_part and set_section and then has to
+	// map the result back to its own sections. Ids are deterministic counters, so
+	// they look predictable right up until a transcription has already added a
+	// part — which is the normal case, not the edge one.
+	it('reports the part add_part created', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Cello', instrument: 'Cello' } }
+		]);
+		expect(r.diff.created).toEqual([
+			{ kind: 'part', id: r.score.parts[0].id, name: 'Cello' }
+		]);
+	});
+
+	it('reports the section set_section created', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]);
+		expect(r.diff.created).toEqual([
+			{ kind: 'section', id: r.score.sections[0].id, name: 'Verse' }
+		]);
+	});
+
+	it('merges everything a batch created, in order', () => {
+		const r = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Piano', instrument: 'Piano' } },
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } },
+			{ op: 'set_section', args: { name: 'Chorus', startTick: 1920, endTick: 3840 } }
+		]);
+		expect(r.diff.created?.map((c) => [c.kind, c.name])).toEqual([
+			['part', 'Piano'],
+			['section', 'Verse'],
+			['section', 'Chorus']
+		]);
+	});
+
+	it('reports nothing when set_section updates an existing section', () => {
+		const first = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]);
+		const sectionId = first.score.sections[0].id;
+
+		const second = applyOps(first.score, [
+			{ op: 'set_section', args: { sectionId, name: 'Verse 1', startTick: 0, endTick: 3840 } }
+		]);
+
+		expect(second.diff.created).toBeUndefined();
+		expect(second.score.sections).toHaveLength(1);
+		expect(second.score.sections[0].name).toBe('Verse 1');
+	});
+
+	it('leaves created absent for ops that make nothing', () => {
+		const seeded = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Piano', instrument: 'Piano' } }
+		]).score;
+		const r = applyOps(seeded, [{ op: 'set_tempo', args: { bpm: 96 } }]);
+		expect(r.diff.created).toBeUndefined();
+	});
+});
+
 describe('selection', () => {
 	it('treats explicit noteIds as final', () => {
 		const s = fixture();
@@ -475,5 +612,47 @@ describe('validation', () => {
 		const { score } = validateScore(JSON.parse(JSON.stringify(s)));
 		expect(score!.parts[0].voices[0].events).toHaveLength(4);
 		expect(scoreEndTick(score!)).toBe(scoreEndTick(s));
+	});
+});
+
+/**
+ * Two op defects the plan stage makes routine. Both were reachable before it —
+ * the agent loop can call either op — but approving a plan is what turns them
+ * from possible into ordinary.
+ */
+describe('op hardening', () => {
+	it('allocates a sixteenth non-drum part instead of hanging', () => {
+		// Fifteen non-drum channels exist (0-8 and 10-15). With all fifteen held,
+		// an unbounded search never finds a free one and never exits. This test
+		// does not fail without the fix — it hangs, which is the point.
+		let score = emptyScore();
+		for (let i = 0; i < 16; i++) {
+			score = applyOps(score, [
+				{ op: 'add_part', args: { name: `Part ${i}`, instrument: 'Violin' } }
+			]).score;
+		}
+		expect(score.parts).toHaveLength(16);
+		// The sixteenth shares a channel rather than claiming the drum channel.
+		expect(score.parts.every((p) => p.channel !== 9)).toBe(true);
+	});
+
+	it('refuses set_section with an id that does not resolve', () => {
+		const score = applyOps(emptyScore(), [
+			{ op: 'set_section', args: { name: 'Verse', startTick: 0, endTick: 1920 } }
+		]).score;
+		expect(score.sections).toHaveLength(1);
+
+		// Updating a section that has since gone must not quietly create a
+		// second one beside the one the caller meant to change.
+		const after = applyOps(score, [
+			{
+				op: 'set_section',
+				args: { name: 'Verse', startTick: 0, endTick: 3840, sectionId: 'section-gone' }
+			}
+		]);
+		expect(after.score.sections).toHaveLength(1);
+		expect(after.score.sections[0].endTick).toBe(1920);
+		// No log line, which is how the agent loop knows to correct itself.
+		expect(after.log).toEqual([]);
 	});
 });

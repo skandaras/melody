@@ -42,17 +42,27 @@ export interface LoopOptions {
 	/** Progress for the SSE stream. Must not throw. */
 	onEvent?: (event: LoopEvent) => void;
 	signal?: AbortSignal;
+	/**
+	 * Which phase of a larger run this loop is one step of, tagged onto the
+	 * events it emits.
+	 *
+	 * The loop runs *within* a phase and never declares one: realizing a
+	 * six-section piece is six loops, and only the orchestrator above knows
+	 * that. Without the tag a client cannot tell which section an iteration
+	 * belongs to, and the progress bar is back to being a spinner.
+	 */
+	phase?: { id: string; label: string };
 }
 
 export type LoopEvent =
-	| { type: 'iteration'; n: number }
+	| { type: 'iteration'; n: number; phase?: string }
 	/** A fragment of prose as it arrives. Many per iteration. */
 	| { type: 'delta'; text: string }
 	/** The model is thinking. Carries no text when reasoning is hidden. */
 	| { type: 'reasoning'; text: string }
 	/** The complete prose for an iteration, once it has finished. */
 	| { type: 'text'; text: string }
-	| { type: 'tool'; name: string; ok: boolean; detail?: string }
+	| { type: 'tool'; name: string; ok: boolean; detail?: string; phase?: string }
 	| { type: 'usage'; usage: Usage };
 
 export interface LoopResult {
@@ -62,9 +72,27 @@ export interface LoopResult {
 	summary: string;
 	iterations: number;
 	usage: Usage;
-	stopReason: 'done' | 'max_iterations' | 'max_ops' | 'refused' | 'truncated' | 'aborted';
+	stopReason:
+		| 'done'
+		| 'no_effect'
+		| 'max_iterations'
+		| 'max_ops'
+		| 'refused'
+		| 'truncated'
+		| 'aborted';
 	/** Anything that went wrong but did not stop the run. */
 	warnings: string[];
+	/**
+	 * Tool calls the loop refused or could not apply — a malformed argument, an
+	 * unknown op, or an op whose selection matched nothing.
+	 *
+	 * Reported because "the model answered without editing" and "the model tried
+	 * four edits and every one of them matched nothing" both end with an empty
+	 * op list and are completely different problems. The second is what the user
+	 * sees as the model reading the score, describing what it found, and then
+	 * appearing to do nothing at all.
+	 */
+	rejectedOps: number;
 }
 
 export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
@@ -82,6 +110,7 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 	let summary = '';
 	let iterations = 0;
 	let hitOpLimit = false;
+	let rejectedOps = 0;
 	// The score as it will be once this turn's ops are committed. Each accepted
 	// op advances it, so `read_score` shows the model the consequences of its
 	// own edits rather than a stale document — and validating one op against
@@ -91,7 +120,7 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 	for (let i = 0; i < opts.maxIterations; i++) {
 		if (opts.signal?.aborted) return result('aborted');
 		iterations = i + 1;
-		opts.onEvent?.({ type: 'iteration', n: iterations });
+		opts.onEvent?.({ type: 'iteration', n: iterations, phase: opts.phase?.id });
 
 		// Streamed rather than awaited whole: a turn can take the better part of
 		// a minute, and without deltas the panel has nothing to show but a step
@@ -151,10 +180,17 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 
 		for (const call of completion.toolCalls) {
 			const outcome = handleCall(call, working, ops, opts.maxOps);
+			if (!outcome.ok) rejectedOps++;
 			if (outcome.score) working = outcome.score;
 			if (outcome.hitLimit) hitOpLimit = true;
 			if (outcome.warning) warnings.push(outcome.warning);
-			opts.onEvent?.({ type: 'tool', name: call.name, ok: outcome.ok, detail: outcome.detail });
+			opts.onEvent?.({
+				type: 'tool',
+				name: call.name,
+				ok: outcome.ok,
+				detail: outcome.detail,
+				phase: opts.phase?.id
+			});
 			// One tool message per call — the id is what ties it back, and a
 			// missing reply leaves the conversation structurally invalid.
 			messages.push({ role: 'tool', toolCallId: call.id, content: outcome.content });
@@ -168,6 +204,12 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 	return result('max_iterations');
 
 	function result(stopReason: LoopResult['stopReason']): LoopResult {
+		// Every path that would report success with nothing to show for it comes
+		// through here, so the demotion belongs here rather than at each return.
+		// A turn that changed nothing is not a failure, but it is emphatically
+		// not the same as a turn that worked.
+		if (stopReason === 'done' && ops.length === 0) stopReason = 'no_effect';
+
 		if (stopReason === 'max_ops') {
 			warnings.push(`Stopped after ${opts.maxOps} operations in one turn.`);
 		}
@@ -178,7 +220,7 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		if (stopReason === 'max_iterations' && opts.maxIterations > 1) {
 			warnings.push(`Stopped after ${opts.maxIterations} model round-trips.`);
 		}
-		return { ops, summary, iterations, usage, stopReason, warnings };
+		return { ops, summary, iterations, usage, stopReason, warnings, rejectedOps };
 	}
 }
 

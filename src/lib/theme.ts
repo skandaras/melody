@@ -63,6 +63,15 @@ export interface Theme {
 	 * swatches every time the preset changes.
 	 */
 	lightScorePaper: boolean;
+	/**
+	 * Draw the atmosphere layer — a slow drifting fog behind the interface.
+	 *
+	 * A property of the theme rather than a global setting, because it only
+	 * makes sense against a palette chosen for it: fog over a bright white
+	 * interface reads as a rendering fault. Off everywhere except Understory,
+	 * so no existing preset changes.
+	 */
+	atmosphere: boolean;
 }
 
 /** Applied when lightScorePaper is on. Matches what PDF export already uses. */
@@ -77,7 +86,29 @@ export const PRESETS: Record<string, Theme> = {
 		notation: '#1a1a1a', notationPaper: '#faf8f4',
 		font: "'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif",
 		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
-		lightScorePaper: false
+		lightScorePaper: false, atmosphere: false
+	},
+	/**
+	 * Damp green-black chrome around a lit page.
+	 *
+	 * lightScorePaper is on deliberately: the point of a dark, wooded interface
+	 * is that the score reads as a sheet of paper you are holding in it, and
+	 * that flag exists precisely to decouple the two.
+	 *
+	 * The diff triad is re-picked rather than inherited. The usual added-green
+	 * would disappear into green chrome, and those three colours mark every AI
+	 * review — they have to stay unmistakable against the background and
+	 * against each other, so this uses gold, rust and a pale sky.
+	 */
+	Understory: {
+		bg: '#0d1210', bgPane: '#141b18', bgRaise: '#1b2420',
+		fg: '#dfe7e0', fgDim: '#7d8f84', accent: '#8fb573',
+		border: '#243029', danger: '#e07a5f',
+		diffAdd: '#d9c26a', diffRemove: '#c56a4e', diffChange: '#7fa8c9',
+		notation: '#1a1a1a', notationPaper: '#f7f3ea',
+		font: "'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif",
+		radius: '10px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
+		lightScorePaper: true, atmosphere: true
 	},
 	Manuscript: {
 		bg: '#f4f1e8', bgPane: '#fbf9f3', bgRaise: '#ffffff',
@@ -87,7 +118,7 @@ export const PRESETS: Record<string, Theme> = {
 		notation: '#1c1a16', notationPaper: '#ffffff',
 		font: "'Iowan Old Style', 'Palatino Linotype', Georgia, serif",
 		radius: '3px', baseFont: '104%', notationScale: 1.05, spaceBase: 0.25,
-		lightScorePaper: false
+		lightScorePaper: false, atmosphere: false
 	},
 	Midnight: {
 		bg: '#07070c', bgPane: '#0e0e17', bgRaise: '#15151f',
@@ -97,7 +128,7 @@ export const PRESETS: Record<string, Theme> = {
 		notation: '#e8e6f0', notationPaper: '#12121b',
 		font: "'Inter', ui-sans-serif, system-ui, sans-serif",
 		radius: '8px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
-		lightScorePaper: false
+		lightScorePaper: false, atmosphere: false
 	},
 	Contrast: {
 		bg: '#000000', bgPane: '#0b0b0b', bgRaise: '#141414',
@@ -107,7 +138,7 @@ export const PRESETS: Record<string, Theme> = {
 		notation: '#ffffff', notationPaper: '#000000',
 		font: "ui-sans-serif, system-ui, sans-serif",
 		radius: '2px', baseFont: '112%', notationScale: 1.2, spaceBase: 0.28,
-		lightScorePaper: false
+		lightScorePaper: false, atmosphere: false
 	},
 	Paper: {
 		bg: '#eceff4', bgPane: '#ffffff', bgRaise: '#ffffff',
@@ -117,11 +148,17 @@ export const PRESETS: Record<string, Theme> = {
 		notation: '#1a1a1a', notationPaper: '#ffffff',
 		font: "'Inter', ui-sans-serif, system-ui, sans-serif",
 		radius: '6px', baseFont: '100%', notationScale: 1, spaceBase: 0.25,
-		lightScorePaper: false
+		lightScorePaper: false, atmosphere: false
 	}
 };
 
-export const DEFAULT_THEME: Theme = PRESETS.Studio;
+/**
+ * Understory rather than Studio: the forest palette is the direction melody is
+ * being rebuilt around, and a default that contradicts it would mean every
+ * screenshot and every new user started somewhere else. Only affects people
+ * with no saved theme — everyone else keeps what they chose.
+ */
+export const DEFAULT_THEME: Theme = PRESETS.Understory;
 
 /** Which presets should render with a light UA canvas before CSS loads. */
 export const LIGHT_PRESETS = new Set(['Manuscript', 'Paper']);

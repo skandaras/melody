@@ -44,6 +44,74 @@ export function tempoAt(score: Score, tick: number): TempoMark {
 	return inForceAt(score.tempoMap, tick);
 }
 
+/**
+ * Ticks and seconds, in both directions.
+ *
+ * The score is written in ticks and played in seconds, and until now only one
+ * direction existed — `scoreDurationSeconds` in the MIDI exporter walks
+ * tick→seconds and nothing walked back. That is why the playhead could not be
+ * drawn: the transport reports where it is in seconds and the notation is laid
+ * out in ticks, with a tempo map in between.
+ *
+ * Both walk the tempo map segment by segment rather than assuming one tempo,
+ * so a piece that speeds up halfway stays in sync instead of drifting from the
+ * change onward.
+ */
+export function tickToSeconds(score: Score, tick: number): number {
+	if (tick <= 0) return 0;
+	const marks = sortedTempi(score);
+	let seconds = 0;
+
+	for (let i = 0; i < marks.length; i++) {
+		const from = marks[i].tick;
+		if (from >= tick) break;
+		// The last mark runs to the end of time, not to the next one.
+		const to = Math.min(marks[i + 1]?.tick ?? tick, tick);
+		seconds += ((to - from) / score.ppq) * (60 / bpmOf(marks[i]));
+	}
+	return seconds;
+}
+
+/**
+ * The inverse. Past the end of the tempo map it keeps going at the final
+ * tempo rather than clamping, so the playhead still travels through a
+ * trailing rest instead of stopping on the last note.
+ */
+export function secondsToTick(score: Score, seconds: number): number {
+	if (seconds <= 0) return 0;
+	const marks = sortedTempi(score);
+	let remaining = seconds;
+
+	for (let i = 0; i < marks.length; i++) {
+		const secondsPerTick = 60 / bpmOf(marks[i]) / score.ppq;
+		const next = marks[i + 1]?.tick;
+
+		if (next !== undefined) {
+			const spanSeconds = (next - marks[i].tick) * secondsPerTick;
+			if (remaining < spanSeconds) {
+				return Math.round(marks[i].tick + remaining / secondsPerTick);
+			}
+			remaining -= spanSeconds;
+			continue;
+		}
+		// Final segment, open ended.
+		return Math.round(marks[i].tick + remaining / secondsPerTick);
+	}
+	return 0;
+}
+
+/** Tempo marks in order, with a guaranteed entry at tick 0. */
+function sortedTempi(score: Score): TempoMark[] {
+	const marks = [...score.tempoMap].sort((a, b) => a.tick - b.tick);
+	if (!marks.length || marks[0].tick > 0) marks.unshift({ tick: 0, bpm: 120 });
+	return marks;
+}
+
+/** A zero or negative bpm would divide by zero and strand the playhead. */
+function bpmOf(mark: TempoMark): number {
+	return Math.max(1, mark.bpm);
+}
+
 /** Last tick with any content in it. Zero for an empty score. */
 export function scoreEndTick(score: Score): number {
 	let end = 0;

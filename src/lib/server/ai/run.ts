@@ -3,7 +3,7 @@ import { checkBudget } from '../budget.js';
 import { commitOps, loadScore } from '../scores.js';
 import { DEFAULT_AI, DEFAULT_MODELS, getSetting, type AiSettings, type ModelSettings } from '../settings.js';
 import { buildEditContext } from './context.js';
-import { createJob, emit, finishJob, recordUsage } from './jobs.js';
+import { createJob, emit, finishJob, recordUsage, timedOut } from './jobs.js';
 import { runAgentLoop } from './loop.js';
 import { resolveTask } from './provider.js';
 import type { Selection } from '$lib/score/types.js';
@@ -56,6 +56,11 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 		const models = getSetting<ModelSettings>('models', DEFAULT_MODELS);
 
 		try {
+			// One phase, declared anyway: a client that can render a phase list
+			// renders every run the same way, and a multi-section realization
+			// later is then just a longer list rather than a second code path.
+			emit(jobId, 'plan', { phases: [{ id: 'edit', label: 'Editing' }] });
+			emit(jobId, 'phase', { id: 'edit', index: 0, total: 1, label: 'Editing' });
 			emit(jobId, 'status', { message: 'Thinking…' });
 
 			const result = await runAgentLoop({
@@ -69,6 +74,7 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 				effort: resolved.options.effort,
 				reasoning: resolved.options.reasoning,
 				signal: abort,
+				phase: { id: 'edit', label: 'Editing' },
 				onEvent: (event) => emit(jobId, event.type, event)
 			});
 
@@ -81,14 +87,38 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 				status: 'ok'
 			});
 
-			if (result.ops.length === 0) {
+			// Cancelling has to mean the edits do not land. runAgentLoop returns
+			// `aborted` normally rather than throwing, so without this the turn
+			// the user just cancelled would still be committed as a revision.
+			if (result.stopReason === 'aborted') {
+				// An abort is either a person pressing Cancel or the job's own
+				// wall-clock ceiling. Both unwind identically, so ask which it was
+				// rather than adding a second writer of the terminal status.
+				const outcome = timedOut(jobId) ? 'timed_out' : 'cancelled';
 				emit(jobId, 'result', {
 					ops: 0,
+					outcome,
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
 					summary: result.summary,
 					warnings: result.warnings,
 					stopReason: result.stopReason
 				});
-				finishJob(jobId, 'done');
+				finishJob(jobId, outcome);
+				return;
+			}
+
+			if (result.ops.length === 0) {
+				emit(jobId, 'result', {
+					ops: 0,
+					outcome: result.stopReason === 'no_effect' ? 'no_effect' : 'done',
+					opsApplied: 0,
+					opsRejected: result.rejectedOps,
+					summary: result.summary,
+					warnings: result.warnings,
+					stopReason: result.stopReason
+				});
+				finishJob(jobId, result.stopReason === 'no_effect' ? 'no_effect' : 'done');
 				return;
 			}
 
@@ -104,11 +134,15 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 
 			emit(jobId, 'result', {
 				ops: result.ops.length,
+				outcome: 'done',
+				opsApplied: result.ops.length,
+				opsRejected: result.rejectedOps,
 				summary: result.summary,
 				warnings: result.warnings,
 				stopReason: result.stopReason,
 				revisionId: commit.revisionId,
 				diff: commit.diff,
+				created: commit.created,
 				doc: commit.score
 			});
 			finishJob(jobId, 'done');

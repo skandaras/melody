@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import Atmosphere from '$lib/components/Atmosphere.svelte';
 	import { themeCss } from '$lib/theme';
 	import type { Snippet } from 'svelte';
 	import type { LayoutServerData } from './$types';
@@ -17,8 +18,17 @@
 		href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href)
 	);
 
-	// The score editor manages its own full-height layout and scrolling.
-	const isEditor = $derived(page.url.pathname.startsWith('/score/'));
+	/**
+	 * Whether this route manages its own full-height layout and scrolling.
+	 *
+	 * A path prefix was fine while everything under /score/ was the editor.
+	 * The stages are prose — a brief is something you read and write, not a
+	 * canvas — so a page says for itself, and anything that does not say
+	 * inherits the editor's behaviour.
+	 */
+	const isEditor = $derived(
+		(page.data as { flush?: boolean }).flush ?? page.url.pathname.startsWith('/score/')
+	);
 </script>
 
 <svelte:head>
@@ -27,6 +37,10 @@
 	{@html `<style id="melody-theme">${themeCss(data.theme)}</style>`}
 	<meta name="theme-color" content={data.theme.bg} />
 </svelte:head>
+
+{#if data.theme.atmosphere}
+	<Atmosphere />
+{/if}
 
 <div class="shell">
 	<nav class="rail">

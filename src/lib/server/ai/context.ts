@@ -125,3 +125,103 @@ export function analysisReport(score: Score, sel: Selection = {}): string {
 	}
 	return lines.join('\n');
 }
+
+/**
+ * The user-turn content for one chunk of a realization.
+ *
+ * Ordered stable-to-volatile like `buildEditContext`, and assembled from the
+ * same three primitives above rather than a fourth renderer. The pieces are
+ * chosen so the model can do what its prompt already asks of it: "connect to
+ * what came before — match the register, texture and rhythmic feel of the
+ * preceding bars" is only actionable if it can see those bars.
+ */
+export function buildRealizeContext(args: {
+	score: Score;
+	/** The plan, as prose, so the piece has a shape beyond this chunk. */
+	planSummary: string;
+	/** This chunk's section: name, bars, harmony, role. */
+	sectionBrief: string;
+	/** What the section after this one is for, so the chunk can aim at it. */
+	nextRole?: string;
+	startTick: number;
+	endTick: number;
+	/** The one part this chunk may write into. */
+	partId: string;
+	/** The hummed theme, if there was one. */
+	motifPartId?: string;
+	/** Free-text direction, when this is a feedback run rather than a first pass. */
+	instruction?: string;
+	opts?: ContextOptions;
+}): string {
+	const { score, startTick, endTick, partId } = args;
+	const lines = [describeScore(score), '', 'The plan:', args.planSummary, '', 'Write this section:', args.sectionBrief];
+
+	if (args.nextRole) lines.push('', `What comes next: ${args.nextRole}. Lead into it.`);
+
+	// A bar or two of tail. Without it "match what came before" is aspirational,
+	// and with the whole score it would be expensive and mostly irrelevant.
+	const sig = timeSigAt(score, startTick);
+	const lookback = measureTicks(score.ppq, sig) * 2;
+	if (startTick > 0) {
+		const before = renderNotes(
+			score,
+			{ startTick: Math.max(0, startTick - lookback), endTick: startTick },
+			args.opts
+		);
+		lines.push('', 'The bars immediately before this section:', before);
+	}
+
+	// The motif, forwarded rather than hoped for. Small, and far cheaper than
+	// discovering at chunk five that the theme has been quietly abandoned.
+	if (args.motifPartId && args.motifPartId !== partId) {
+		lines.push(
+			'',
+			'The theme this piece is built on:',
+			renderNotes(score, { partIds: [args.motifPartId] }, args.opts)
+		);
+	}
+
+	// Existing notes in the window. Naming the operation matters: insert_notes
+	// adds to what is there, so a rewrite that reached for it would layer the new
+	// phrase on top of the old one and sound like both at once. Its own summary
+	// says to use replace_range instead, but a rewrite is exactly the moment not
+	// to leave that to inference.
+	const existing = renderNotes(score, { partIds: [partId], startTick, endTick }, args.opts);
+	const rewriting = !existing.startsWith('(no notes');
+	if (rewriting) {
+		lines.push(
+			'',
+			'This section already has notes in it:',
+			existing,
+			'',
+			`You are replacing them. Use replace_range on part ${partId} from tick ${startTick} to ${endTick} — insert_notes would add your new phrase on top of the existing one.`
+		);
+	}
+
+	lines.push(
+		'',
+		`Write into part ${partId} only, from tick ${startTick} up to but not including tick ${endTick}.`,
+		'Every note must start inside that window. Do not touch any other part or any other bar.'
+	);
+
+	if (args.instruction) lines.push('', `The person asked for: ${args.instruction}`);
+	return lines.join('\n');
+}
+
+/** The plan as a few lines of prose, for a realization's prompt. */
+export function planSummary(plan: {
+	title: string;
+	key: { tonic: string; mode: string };
+	tempoBpm: number;
+	timeSig: { num: number; den: number };
+	sections: { name: string; bars: number; harmony: string; role: string }[];
+}): string {
+	const lines = [
+		`"${plan.title || 'Untitled'}" — ${plan.key.tonic} ${plan.key.mode}, ${plan.tempoBpm}bpm, ${plan.timeSig.num}/${plan.timeSig.den}.`,
+		'Form:'
+	];
+	for (const s of plan.sections) {
+		lines.push(`  ${s.name} — ${s.bars} bars, ${s.harmony || 'no set harmony'}, ${s.role}`);
+	}
+	return lines.join('\n');
+}
