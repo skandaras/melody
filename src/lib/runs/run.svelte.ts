@@ -98,7 +98,18 @@ export class Run {
 	 * so adding one to the wire needs no change here — only a case in
 	 * `run-state.ts`, where it can be tested.
 	 */
-	listen(jobId: string, onResult?: (result: RunResult) => void): void {
+	listen(
+		jobId: string,
+		onResult?: (result: RunResult) => void,
+		/**
+		 * Every event, verbatim, for a caller that wants more than progress.
+		 *
+		 * A chunked realization emits the document after each section so the
+		 * notation fills in as it is written; that is neither progress nor a
+		 * final result, so it belongs to whoever asked rather than to RunState.
+		 */
+		onEvent?: (type: string, data: Record<string, unknown> | undefined) => void
+	): void {
 		this.reset();
 		this.state = beginRun();
 		this.jobId = jobId;
@@ -106,7 +117,11 @@ export class Run {
 		this.#source = source;
 
 		const forward = (type: string) =>
-			source.addEventListener(type, (e) => this.push({ type, data: parse(e) }));
+			source.addEventListener(type, (e) => {
+				const data = parse(e);
+				onEvent?.(type, data);
+				this.push({ type, data });
+			});
 
 		for (const type of [
 			'plan',
@@ -117,6 +132,7 @@ export class Run {
 			'delta',
 			'text',
 			'tool',
+			'progress',
 			'done'
 		]) {
 			forward(type);
@@ -127,6 +143,7 @@ export class Run {
 		// document to the caller.
 		source.addEventListener('result', (e) => {
 			const data = parse(e);
+			onEvent?.('result', data);
 			this.lastResult = data ?? null;
 			this.push({ type: 'result', data });
 			if (data?.doc && typeof data.revisionId === 'string') {

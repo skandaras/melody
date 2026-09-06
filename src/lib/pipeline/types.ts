@@ -144,6 +144,15 @@ export interface Plan {
 	timeSig: { num: number; den: number };
 	ensemble: PlanPart[];
 	sections: PlanSection[];
+	/**
+	 * The part the melody is written into.
+	 *
+	 * Chosen on the melody page and stored here rather than in a column of its
+	 * own: `plan` is a JSON column, so this costs no migration — the same
+	 * argument that let this interface grow three fields when it was first
+	 * written. Absent means "work it out", which `melodyPartOf` does.
+	 */
+	melodyPartId?: string;
 	/** True once it has been committed to the score as parts and sections. */
 	approved: boolean;
 }
@@ -216,7 +225,8 @@ export function isStage(value: unknown): value is Stage {
  * A stage that lands later adds one line here and needs no routing change.
  */
 const STAGE_ROUTES: Partial<Record<Stage, string>> = {
-	plan: 'plan'
+	plan: 'plan',
+	melody: 'melody'
 };
 
 /** The path segment for a stage's own page, or null if it has none yet. */

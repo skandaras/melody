@@ -243,6 +243,11 @@ export function coercePlan(raw: unknown, score: Score): Plan | null {
 			};
 		});
 
+	// Validated against the score like `partId` above: a melody part naming a
+	// staff that is not there would send the realization nowhere. Dropped rather
+	// than kept, so `melodyPartOf` falls back to its defaults.
+	const melodyPartId = str(r.melodyPartId);
+
 	const key = (r.key ?? {}) as Record<string, unknown>;
 	const sig = (r.timeSig ?? {}) as Record<string, unknown>;
 	const den = num(sig.den, 4);
@@ -262,6 +267,7 @@ export function coercePlan(raw: unknown, score: Score): Plan | null {
 		},
 		ensemble,
 		sections,
+		...(melodyPartId && known.has(melodyPartId) ? { melodyPartId } : {}),
 		approved: false
 	};
 }
