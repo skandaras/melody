@@ -8,11 +8,11 @@
 	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
 	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
+	import ScoreFacts from '$lib/components/ScoreFacts.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { ScoreSession } from '$lib/editor/session.svelte';
-	import { analyse } from '$lib/score/analyse';
 	import { secondsToTick, tempoAt } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
@@ -67,8 +67,6 @@
 		void score;
 		player.invalidate();
 	});
-
-	const summary = $derived(analyse(score));
 
 	/**
 	 * Where playback has reached, in ticks.
@@ -277,19 +275,7 @@
 		</section>
 
 		<section>
-			<h2>Analysis</h2>
-			<dl class="facts">
-				<dt>Key</dt>
-				<dd>{summary.key.name}</dd>
-				<dt>Tempo</dt>
-				<dd>{summary.tempoBpm} bpm</dd>
-				<dt>Metre</dt>
-				<dd>{summary.timeSig}</dd>
-				<dt>Bars</dt>
-				<dd>{summary.barCount}</dd>
-				<dt>Notes</dt>
-				<dd>{summary.totalNotes}</dd>
-			</dl>
+			<ScoreFacts {score} heading="Analysis" />
 		</section>
 	</aside>
 
@@ -434,19 +420,6 @@
 	}
 
 
-	.facts {
-		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: var(--space-1) var(--space-3);
-		margin: 0;
-		font-size: var(--text-sm);
-	}
-	.facts dt {
-		color: var(--fg-dim);
-	}
-	.facts dd {
-		margin: 0;
-	}
 
 	.centre {
 		display: flex;

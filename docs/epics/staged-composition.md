@@ -204,10 +204,15 @@ Chosen so the app works throughout and value lands early.
 8. **Arrangement, Refinement, Finish**, then retire the old entry point and fix
    the dead `/library` link.
 
-Steps 1–7 and the Arrangement half of step 8 have landed. The `stages` column
-and its backfill arrived with Arrangement rather than Melody: it is one data
-model serving three stages, and bolting it onto the first of them would have
-meant designing it twice.
+Steps 1–7 have landed, and step 8 all but its tail: Arrangement, Refinement and
+Finish all exist, so the six stages now run end to end. What remains of step 8 is
+retiring the old entry point and fixing the dead `/library` link.
+
+Two things arrived later than this order implies, both for the same reason —
+they serve several stages, and building them into the first would have meant
+designing them twice. The `stages` column and its backfill came with
+Arrangement rather than Melody; the stage stepper came with Finish, once there
+were six stages for it to step through.
 
 Steps 1–4 are individually revertable. Step 5 is the one that cannot be
 half-done.

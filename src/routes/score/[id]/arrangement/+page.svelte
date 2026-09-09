@@ -3,9 +3,11 @@
 	import { untrack } from 'svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
+	import PendingBar from '$lib/components/PendingBar.svelte';
 	import RunProgress from '$lib/components/RunProgress.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
+	import StageStepper from '$lib/components/StageStepper.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { Run } from '$lib/runs/run.svelte';
 	import { partChunks, partStates, unwrittenParts } from '$lib/pipeline/arrange';
@@ -232,7 +234,7 @@
 		try {
 			await post({ action: 'approve' });
 			// Through the bare score route, so the stage table decides where that
-			// lands — refinement has no page yet and falls through to the editor.
+			// lands, rather than this page hardcoding what comes next.
 			await goto(`/score/${data.score.id}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -252,7 +254,7 @@
 <div class="arrangement">
 	<aside class="rail">
 		<header>
-			<p class="step">Arrangement</p>
+			<StageStepper scoreId={data.score.id} current="arrangement" reached={data.pipeline.stage} />
 			<h1>{plan.title || 'The ensemble'}</h1>
 			<p class="lead">
 				{#if targets.length === 0}
@@ -379,17 +381,12 @@
 		</section>
 
 		{#if pending}
-			<section class="pending">
-				<p class="label">{pending.label} — not accepted yet</p>
-				<div class="row">
-					<button class="btn primary" onclick={() => resolvePending('accept')} disabled={busy}>
-						Keep it
-					</button>
-					<button class="btn" onclick={() => resolvePending('reject')} disabled={busy}>
-						Undo it
-					</button>
-				</div>
-			</section>
+			<PendingBar
+				label={pending.label}
+				{busy}
+				onaccept={() => resolvePending('accept')}
+				onreject={() => resolvePending('reject')}
+			/>
 		{/if}
 
 		{#if canEdit}
@@ -476,12 +473,6 @@
 		min-height: 0;
 	}
 
-	.step {
-		font-size: var(--text-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--accent);
-	}
 	h1 {
 		font-size: var(--text-lg);
 		margin: var(--space-1) 0;
@@ -567,17 +558,6 @@
 	}
 	.tag.warn {
 		color: var(--warn, var(--accent));
-	}
-
-	.pending {
-		border: 1px solid var(--accent);
-		border-radius: var(--radius);
-		padding: var(--space-3);
-		gap: var(--space-2);
-	}
-	.row {
-		display: flex;
-		gap: var(--space-2);
 	}
 
 	.issues {

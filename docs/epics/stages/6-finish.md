@@ -46,9 +46,15 @@ change the document.
   `TASK_BLURBS` already says so: "Names a piece. Wants speed, not depth." If an
   operator has left every task on one global model, this is the clearest place
   the per-task configuration pays for itself.
-- **Exports are generated server-side into `DATA_DIR/exports/`** and are subject
-  to retention. A finished piece the person expects to keep is not the same as a
-  cached export; do not conflate them.
+- ~~**Exports are generated server-side into `DATA_DIR/exports/`** and are
+  subject to retention.~~ **Wrong on both counts, and checked.** Every exporter
+  in `$lib/export` runs in the browser against the document the page already
+  holds, there is no export route, nothing has ever written to that directory,
+  and `RetentionSettings` has no field for it. `DATA_DIR/exports/` was a
+  directory created at boot for a feature that was never built — a third piece of
+  latent intent alongside `check_playability` and the two dead tasks — so
+  `ensureDataDirs` no longer makes it. Export stays a read: nothing about
+  exporting touches the document.
 
 ## Open questions
 
@@ -56,5 +62,18 @@ change the document.
   read-only state — or is Finish just the last stage you can leave and re-enter
   freely? Leaning: no flag. Music is never finished, and a lock would be
   friction with no payoff.
+  **Taken: no flag.** There is no `approve` on this stage and nothing to set —
+  `nextStage('finish')` is null. Finish is the last stage you can leave and
+  re-enter like any other.
 - Should the analysis text be stored with the score, so it is there next time
   without paying for it again?
+  **Yes, with the digest it was written from.** Prose about a piece stops being
+  true the moment the piece changes, so storing the text alone would be keeping a
+  claim that silently rots — the failure this epic exists to remove. `basis` is
+  the exact input the model saw; regenerating it and comparing is exact rather
+  than approximate, and a stored analysis whose basis no longer matches says so
+  instead of presenting an old reading as a current one. It lives on the `plan`
+  JSON column, which costs no migration. The price, worth naming: `PipelineState`
+  is snapshotted into every revision, so the text is copied beside each one.
+  Refinement deliberately does *not* keep its analysis — it is the stage most
+  likely to invalidate one within a few clicks.

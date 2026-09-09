@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MockAdapter } from './mock.js';
-import { extractJson, runStructured, structuredContract } from './structured.js';
+import { extractJson, runProse, runStructured, structuredContract } from './structured.js';
 
 /**
  * The structured run, and the retry that exists because
@@ -157,5 +157,114 @@ describe('runStructured', () => {
 		// The first attempt was paid for whether or not it parsed.
 		expect(result.usage.promptTokens).toBe(20);
 		expect(result.usage.completionTokens).toBe(12);
+	});
+});
+
+describe('runProse', () => {
+	const prose = { systemPrompt: 'You explain music.', userPrompt: 'A summary.' };
+
+	it('returns what the model said', async () => {
+		const adapter = new MockAdapter([
+			{ content: 'It is in A minor and never leaves.', finishReason: 'stop' }
+		]);
+		const result = await runProse({ adapter, ...prose });
+
+		expect(result.stopReason).toBe('done');
+		expect(result.text).toBe('It is in A minor and never leaves.');
+	});
+
+	it('does not report a successful answer as having changed nothing', async () => {
+		// The whole reason this runner exists rather than a no-tools agent loop.
+		// `runAgentLoop` demotes done to no_effect whenever it produced no ops, and
+		// a prose task never produces any — so every real answer would arrive
+		// labelled as one that said nothing.
+		const adapter = new MockAdapter([{ content: 'A page of insight.', finishReason: 'stop' }]);
+		const result = await runProse({ adapter, ...prose });
+
+		expect(result.stopReason).toBe('done');
+		expect(result.stopReason).not.toBe('no_effect');
+		expect(result.text).not.toBe('');
+	});
+
+	it('sends no tools and no response schema', async () => {
+		// A tool list would invite a tool call there is nothing to do with, and a
+		// schema would contradict a prompt whose product is prose.
+		const adapter = new MockAdapter([{ content: 'Fine.', finishReason: 'stop' }]);
+		await runProse({ adapter, ...prose });
+
+		const [req] = adapter.requests;
+		expect(req.tools).toBeUndefined();
+		expect(req.responseSchema).toBeUndefined();
+	});
+
+	it('leaves the stored prompt alone', async () => {
+		// `runStructured` appends a JSON contract. Doing that here would tell a
+		// prompt that ends "Return only the title" to return an object instead.
+		const adapter = new MockAdapter([{ content: 'Slow Light in November', finishReason: 'stop' }]);
+		await runProse({ adapter, ...prose });
+
+		const system = adapter.requests[0].messages[0].content ?? '';
+		expect(system).toBe('You explain music.');
+		expect(system).not.toContain(structuredContract());
+	});
+
+	it('separates an empty answer from a real one', async () => {
+		const adapter = new MockAdapter([{ content: '   ', finishReason: 'stop' }]);
+		const result = await runProse({ adapter, ...prose });
+
+		expect(result.stopReason).toBe('empty');
+		expect(result.text).toBe('');
+	});
+
+	it('keeps prose that ran out of room, and says so', async () => {
+		// Truncated JSON is unusable; truncated prose is merely short.
+		const adapter = new MockAdapter([
+			{ content: 'The bridge modulates to', finishReason: 'length' }
+		]);
+		const result = await runProse({ adapter, ...prose });
+
+		expect(result.stopReason).toBe('truncated');
+		expect(result.text).toBe('The bridge modulates to');
+		expect(result.warnings.join(' ')).toContain('output tokens');
+	});
+
+	it('reports a refusal as a refusal', async () => {
+		const adapter = new MockAdapter([{ content: '', finishReason: 'content_filter' }]);
+		expect((await runProse({ adapter, ...prose })).stopReason).toBe('refused');
+	});
+
+	it('does not call the model at all once aborted', async () => {
+		const adapter = new MockAdapter([{ content: 'Too late.', finishReason: 'stop' }]);
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await runProse({ adapter, ...prose, signal: controller.signal });
+
+		expect(result.stopReason).toBe('aborted');
+		expect(adapter.requests).toHaveLength(0);
+	});
+
+	it('counts the tokens it spent', async () => {
+		const adapter = new MockAdapter([
+			{ content: 'Brief.', finishReason: 'stop', usage: { promptTokens: 40, completionTokens: 9 } }
+		]);
+		const result = await runProse({ adapter, ...prose });
+
+		expect(result.usage.promptTokens).toBe(40);
+		expect(result.usage.completionTokens).toBe(9);
+	});
+
+	it('forwards deltas so the page has something to show', async () => {
+		const adapter = new MockAdapter([{ content: 'Streaming.', finishReason: 'stop' }]);
+		const seen: string[] = [];
+		await runProse({
+			adapter,
+			...prose,
+			onEvent: (e) => {
+				if (e.type === 'delta') seen.push(e.text);
+			}
+		});
+
+		expect(seen.join('')).toBe('Streaming.');
 	});
 });

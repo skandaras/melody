@@ -3,9 +3,11 @@ import {
 	emptyBrief,
 	FIRST_STAGE,
 	isBriefUsable,
+	furthest,
 	isStage,
 	nextStage,
 	pipelineOf,
+	stagePath,
 	stageRoute,
 	STAGES,
 	type Stage
@@ -112,11 +114,54 @@ describe('stageRoute', () => {
 		expect(stageRoute('arrangement')).toBe('arrangement');
 	});
 
-	it('falls through for stages that have no page yet', () => {
-		// Refine and finish land in the editor until each one is built. Falling
-		// through is correct; a dead link is not.
-		for (const stage of ['refine', 'finish'] as const) {
-			expect(stageRoute(stage)).toBeNull();
+	it('routes every stage but the brief, now all six pages exist', () => {
+		for (const stage of ['plan', 'melody', 'arrangement', 'refine', 'finish'] as const) {
+			expect(stageRoute(stage)).toBe(stage);
+		}
+	});
+});
+
+describe('stagePath', () => {
+	it('gives every stage a page, including the brief', () => {
+		// The distinction the stepper rests on. `stageRoute` answers "where is a
+		// score sitting here sent", and excludes the brief so legacy scores are
+		// never routed into the flow. This answers "where does this stage's page
+		// live", and the brief has one — it is simply never a redirect target.
+		expect(stagePath('abc', 'brief')).toBe('/score/abc/brief');
+		expect(stageRoute('brief')).toBeNull();
+	});
+
+	it('agrees with the routing table wherever that table has an opinion', () => {
+		// Two functions, one truth: a stage that redirects somewhere must redirect
+		// to the page it actually has, or the stepper and the redirect disagree.
+		for (const stage of STAGES) {
+			const segment = stageRoute(stage);
+			if (segment) expect(stagePath('abc', stage)).toBe(`/score/abc/${segment}`);
+		}
+	});
+});
+
+describe('furthest', () => {
+	it('keeps the later of two stages', () => {
+		expect(furthest('melody', 'finish')).toBe('finish');
+		expect(furthest('finish', 'melody')).toBe('finish');
+	});
+
+	it('is stable for the same stage', () => {
+		for (const stage of STAGES) expect(furthest(stage, stage)).toBe(stage);
+	});
+
+	it('never goes backwards, whichever way round it is asked', () => {
+		// The property the approve handlers depend on. Re-entering the melody of a
+		// finished piece and approving it must not rewind the score three stages,
+		// which is exactly what a bare assignment would do once the stepper made
+		// walking backwards possible.
+		for (const a of STAGES) {
+			for (const b of STAGES) {
+				const later = STAGES.indexOf(a) > STAGES.indexOf(b) ? a : b;
+				expect(furthest(a, b)).toBe(later);
+				expect(furthest(b, a)).toBe(later);
+			}
 		}
 	});
 });

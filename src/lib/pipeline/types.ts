@@ -153,6 +153,22 @@ export interface Plan {
 	 * written. Absent means "work it out", which `melodyPartOf` does.
 	 */
 	melodyPartId?: string;
+	/**
+	 * The last prose analysis, and the digest it was written from.
+	 *
+	 * Not part of the blueprint, and it is worth saying so: a plan describes a
+	 * piece before it exists, whereas this describes the piece that resulted. It
+	 * lives here for the reason `melodyPartId` does — `plan` is a JSON column, so
+	 * keeping it costs no migration and it is snapshotted per revision for free.
+	 *
+	 * `basis` is the exact text the model was given. Storing it is what lets the
+	 * page say whether the analysis still describes the score: if the digest
+	 * regenerates identically, every fact the answer was based on is unchanged
+	 * and the answer still holds; if it differs, the analysis is stale and should
+	 * say so rather than quietly present yesterday's reading as today's. Cheaper
+	 * and more exact than a revision id, because it compares the actual input.
+	 */
+	analysis?: { text: string; basis: string };
 	/** True once it has been committed to the score as parts and sections. */
 	approved: boolean;
 }
@@ -227,7 +243,9 @@ export function isStage(value: unknown): value is Stage {
 const STAGE_ROUTES: Partial<Record<Stage, string>> = {
 	plan: 'plan',
 	melody: 'melody',
-	arrangement: 'arrangement'
+	arrangement: 'arrangement',
+	refine: 'refine',
+	finish: 'finish'
 };
 
 /** The path segment for a stage's own page, or null if it has none yet. */
@@ -235,8 +253,45 @@ export function stageRoute(stage: Stage): string | null {
 	return STAGE_ROUTES[stage] ?? null;
 }
 
+/**
+ * Where a stage's page lives.
+ *
+ * A different question from `stageRoute`, and worth keeping separate rather than
+ * reusing that table: this asks "what is the URL of this stage", whereas
+ * `STAGE_ROUTES` asks "should the bare score route redirect here". Only the
+ * second excludes the brief — its page exists and is perfectly linkable, it is
+ * just never a redirect target, because every score written before the pipeline
+ * reads as being at the brief and must not be shoved into a form.
+ *
+ * Every stage page is mounted at its own stage id, so this stays a formatting
+ * function rather than a second table to keep in step with the routes.
+ */
+export function stagePath(scoreId: string, stage: Stage): string {
+	return `/score/${scoreId}/${stage}`;
+}
+
 /** The stage after this one, or null at the end of the pipeline. */
 export function nextStage(stage: Stage): Stage | null {
 	const i = STAGES.indexOf(stage);
 	return i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1] : null;
+}
+
+/**
+ * The later of two stages.
+ *
+ * Approving is "I am done with this stage", not "this is how far the piece has
+ * got", and the two stopped being the same thing the moment it became possible
+ * to walk back into an earlier stage. Without this, re-entering the Melody of a
+ * finished piece and approving it would set the stage to `arrangement` and
+ * quietly rewind the score three stages — losing the only record of how far it
+ * had actually been.
+ *
+ * Applied by the approve handlers rather than inside `setPipeline`, because
+ * `restoreRevision` legitimately moves a score *backwards*: it restores the
+ * pipeline that belonged to the document it restored, and a score whose parts
+ * and sections have just been undone away really is at an earlier stage.
+ * Blocking that would reintroduce the bug the snapshot exists to fix.
+ */
+export function furthest(a: Stage, b: Stage): Stage {
+	return STAGES.indexOf(b) > STAGES.indexOf(a) ? b : a;
 }

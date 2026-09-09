@@ -4,6 +4,7 @@
 	import RunProgress from '$lib/components/RunProgress.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
+	import StageStepper from '$lib/components/StageStepper.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { Run } from '$lib/runs/run.svelte';
 	import { sectionStates } from '$lib/pipeline/realize';
@@ -129,7 +130,7 @@
 		try {
 			await post({ action: 'approve' });
 			// Through the bare score route, so the stage table decides where that
-			// lands — arrangement has no page yet and falls through to the editor.
+			// lands, rather than this page hardcoding what comes next.
 			await goto(`/score/${data.score.id}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -149,7 +150,7 @@
 <div class="melody">
 	<aside class="rail">
 		<header>
-			<p class="step">Melody</p>
+			<StageStepper scoreId={data.score.id} current="melody" reached={data.pipeline.stage} />
 			<h1>{plan.title || 'The tune'}</h1>
 			<p class="lead">{written} of {sections.length} sections written.</p>
 		</header>
@@ -301,12 +302,6 @@
 		min-height: 0;
 	}
 
-	.step {
-		font-size: var(--text-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--accent);
-	}
 	h1 {
 		font-size: var(--text-lg);
 		margin: var(--space-1) 0;

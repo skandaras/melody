@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import RunProgress from '$lib/components/RunProgress.svelte';
+	import StageStepper from '$lib/components/StageStepper.svelte';
 	import { Run } from '$lib/runs/run.svelte';
 	import { estimateSeconds, formatDuration, MAX_ENSEMBLE } from '$lib/pipeline/plan';
 	import { emptyPlan, isPlanUsable, type Plan, type PlanSection } from '$lib/pipeline/types';
@@ -164,7 +165,7 @@
 
 <div class="plan">
 	<header>
-		<p class="step">Plan</p>
+		<StageStepper scoreId={data.score.id} current="plan" reached={data.pipeline.stage} />
 		<h1>The shape of it</h1>
 		<p class="lead">
 			Key, tempo, instruments and the sections in order. Change anything — nothing is written
@@ -326,13 +327,6 @@
 		padding-bottom: var(--space-8);
 	}
 
-	.step {
-		font-size: var(--text-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--accent);
-		margin-bottom: var(--space-2);
-	}
 	h1 {
 		font-size: var(--text-xl);
 		margin-bottom: var(--space-2);

@@ -6,7 +6,7 @@ import { NothingToArrangeError, startArrange } from '$lib/server/ai/arrange';
 import { commitOps, loadScore, setPipeline } from '$lib/server/scores';
 import { isArranged, noteIdsIn, partStates } from '$lib/pipeline/arrange';
 import { melodyPartOf } from '$lib/pipeline/realize';
-import { nextStage } from '$lib/pipeline/types';
+import { furthest, nextStage } from '$lib/pipeline/types';
 import type { RequestHandler } from './$types';
 
 /**
@@ -127,6 +127,11 @@ function approve(scoreId: string, userId: string) {
 	}
 
 	return json({
-		pipeline: setPipeline(scoreId, userId, { stage: nextStage('arrangement') ?? 'arrangement' })
+		// `furthest`, not a bare assignment: the stepper makes it possible to walk
+		// back into this stage from a later one, and approving it again must not
+		// rewind a finished score to where it was three stages ago.
+		pipeline: setPipeline(scoreId, userId, {
+			stage: furthest(row.pipeline.stage, nextStage('arrangement') ?? 'arrangement')
+		})
 	});
 }

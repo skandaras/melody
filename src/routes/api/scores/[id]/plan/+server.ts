@@ -4,7 +4,7 @@ import { NoModelError, NoProviderError } from '$lib/server/ai/provider';
 import { startPlan } from '$lib/server/ai/plan';
 import { commitOps, loadScore, setPipeline } from '$lib/server/scores';
 import { coercePlan, planToOps, withCreatedIds, withCreatedPartIds } from '$lib/pipeline/plan';
-import { isPlanUsable, nextStage, type Plan } from '$lib/pipeline/types';
+import { furthest, isPlanUsable, nextStage, type Plan } from '$lib/pipeline/types';
 import type { RequestHandler } from './$types';
 
 /**
@@ -93,7 +93,9 @@ function approve(scoreId: string, userId: string, raw: unknown) {
 
 	const pipeline = setPipeline(scoreId, userId, {
 		plan: recorded,
-		stage: nextStage('plan') ?? 'plan'
+		// See the arrangement route: re-approving a plan from a finished piece
+		// must not rewind it to the melody stage.
+		stage: furthest(row.pipeline.stage, nextStage('plan') ?? 'plan')
 	});
 
 	return json({ pipeline, doc: result.score, revisionId: result.revisionId, log: result.log });

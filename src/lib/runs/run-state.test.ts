@@ -40,6 +40,57 @@ describe('idle', () => {
 	});
 });
 
+describe('a run born terminal', () => {
+	/**
+	 * A free control is over before it can report progress: no job, no stream,
+	 * one request that returns the finished document. It still has to end
+	 * somewhere a person can read, and this is what lets it use the same path as
+	 * a paid one instead of a second one of its own.
+	 */
+	it('accepts a run that begins and ends without ever running', () => {
+		// From idle, not beginRun() — there is no interval during which a
+		// deterministic control is in flight.
+		const s = play(
+			[
+				{ type: 'result', data: { opsApplied: 4 } },
+				{ type: 'done', data: { status: 'done' } }
+			],
+			emptyRun()
+		);
+
+		expect(s.outcome).toBe('done');
+		expect(isTerminal(s)).toBe(true);
+		expect(isRunning(s)).toBe(false);
+		// Silent on success: the notation changing is the confirmation, and a
+		// completion line for something instant is noise.
+		expect(outcomeMessage(s)).toBe('');
+	});
+
+	it('says so when an instant control changed nothing', () => {
+		// The half that had no voice at all before. Without the applied count a
+		// successful control would claim this, and a control that really did
+		// nothing would claim success.
+		const s = play(
+			[
+				{ type: 'result', data: { opsApplied: 0 } },
+				{ type: 'done', data: { status: 'done' } }
+			],
+			emptyRun()
+		);
+
+		expect(s.outcome).toBe('done');
+		expect(outcomeMessage(s)).toBe('Nothing was changed.');
+	});
+
+	it('carries a failure that happened before any run started', () => {
+		const s = play([{ type: 'error', data: { error: 'Control not found' } }], emptyRun());
+
+		expect(s.outcome).toBe('error');
+		expect(isTerminal(s)).toBe(true);
+		expect(outcomeMessage(s)).toBe('Control not found');
+	});
+});
+
 describe('phases', () => {
 	it('takes the declared plan and marks the current phase', () => {
 		const s = play([

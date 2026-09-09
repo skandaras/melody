@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import AudioInput from '$lib/components/AudioInput.svelte';
+	import StageStepper from '$lib/components/StageStepper.svelte';
 	import { ScoreSession } from '$lib/editor/session.svelte';
 	import { untrack } from 'svelte';
 	import {
@@ -93,7 +94,7 @@
 
 <div class="brief">
 	<header>
-		<p class="step">Brief</p>
+		<StageStepper scoreId={data.score.id} current="brief" reached={data.pipeline.stage} />
 		<h1>What are we making?</h1>
 		<p class="lead">
 			Describe it, hum it, or both. Everything after this is shaped by what you put here — and
@@ -213,13 +214,6 @@
 		padding-bottom: var(--space-8);
 	}
 
-	.step {
-		font-size: var(--text-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--accent);
-		margin-bottom: var(--space-2);
-	}
 	h1 {
 		font-size: var(--text-xl);
 		margin-bottom: var(--space-2);

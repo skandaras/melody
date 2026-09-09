@@ -2,6 +2,7 @@
 	import ControlParams from './ControlParams.svelte';
 	import RunProgress from './RunProgress.svelte';
 	import { Run } from '$lib/runs/run.svelte';
+	import { isTerminal } from '$lib/runs/run-state';
 	import type { Score, Selection } from '$lib/score/types';
 
 	/**
@@ -30,6 +31,19 @@
 		scoreId: string;
 		controls: ControlSummary[];
 		selection: Selection;
+		/**
+		 * What that selection means, in words, shown on every control.
+		 *
+		 * The epic asks for this by name: "Selection defaults to the whole score
+		 * … so make it *stated* rather than defaulted. Show the scope on the
+		 * button: 'Darken · selection' vs. 'Darken · whole piece'." On the button
+		 * rather than beside the rack because the moment of risk is the click, and
+		 * a note a few centimetres away is a note nobody reads.
+		 *
+		 * Optional: the editor has its own selection readout above the rack and
+		 * would only be repeating itself.
+		 */
+		scopeLabel?: string;
 		busy: boolean;
 		onapplied: (r: { doc: Score; revisionId: string; diff: unknown }) => void;
 		onstaged: (r: {
@@ -39,16 +53,15 @@
 			label: string;
 		}) => void;
 	}
-	let { scoreId, controls, selection, busy, onapplied, onstaged }: Props = $props();
+	let { scoreId, controls, selection, scopeLabel, busy, onapplied, onstaged }: Props = $props();
 
 	let openId = $state<string | null>(null);
 	let params = $state<Record<string, Record<string, unknown>>>({});
 	let runningId = $state<string | null>(null);
 
-	// Only the model-backed tiers get a Run. A `code` control is one request
-	// that returns the finished document — see run() below.
+	// Both tiers share one Run. The model-backed ones stream into it; a `code`
+	// control settles it in one step — see run() below.
 	const activeRun = new Run();
-	let error = $state('');
 
 	const byCategory = $derived.by(() => {
 		const map = new Map<string, ControlSummary[]>();
@@ -78,7 +91,6 @@
 	async function run(c: ControlSummary) {
 		if (runningId || busy) return;
 		runningId = c.id;
-		error = '';
 		activeRun.reset();
 
 		try {
@@ -89,28 +101,65 @@
 			});
 			if (!res.ok) throw new Error((await res.text()) || res.statusText);
 			const result = await res.json();
+			// Closed as soon as the request lands, for both tiers. The parameters
+			// have already been sent, so leaving the form open suggests they can
+			// still be changed — and the old code only closed it on success, so a
+			// control that failed left its panel open indefinitely.
+			openId = null;
 
 			if (result.kind === 'applied') {
 				onapplied(result);
-				runningId = null;
-				openId = null;
+				settle(result.diff);
 			} else {
 				activeRun.listen(result.jobId, (r) => {
 					onstaged({ ...r, doc: r.doc as Score, label: c.name });
-					openId = null;
 				});
 			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-			runningId = null;
+			// Reported through the run rather than beside it, so a control that
+			// failed before a job existed reads the same as one that failed inside
+			// it. There is one place a control says what happened.
+			activeRun.push({
+				type: 'error',
+				data: { error: e instanceof Error ? e.message : String(e) }
+			});
 		}
+	}
+
+	/**
+	 * Finish a free control's run, which was over before it could report.
+	 *
+	 * A `code` control is deterministic and instant, so it returns the finished
+	 * document with no job and no SSE. Until now that meant it bypassed the run
+	 * entirely and cleared `runningId` by hand — the "two code paths for what
+	 * looks to the user like one action" that stages/5-refinement.md predicted.
+	 *
+	 * It needs no new API: `isTerminal` is false for an idle run, so the reducer
+	 * accepts a run that begins and ends in one breath. `AudioInput` already
+	 * drives the same state by hand for transcription, which is a Web Worker
+	 * rather than a stream.
+	 *
+	 * The `result` push is load-bearing. `outcomeMessage` reports "Nothing was
+	 * changed." for a finished run unless something was applied, so counting what
+	 * the diff actually touched is what makes a successful control stay silent —
+	 * the notation changing is its own confirmation — while one that matched
+	 * nothing finally says so. Today it says nothing either way.
+	 */
+	function settle(diff: { added: string[]; removed: string[]; changed: string[] }): void {
+		const touched = diff.added.length + diff.removed.length + diff.changed.length;
+		activeRun.push({ type: 'result', data: { opsApplied: touched } });
+		// `no_effect` is the word the server uses for a run that changed nothing,
+		// and this is that run. Saying it the same way here means one vocabulary
+		// for one situation, however the work happened to be done.
+		activeRun.push({ type: 'done', data: { status: touched ? 'done' : 'no_effect' } });
 	}
 
 	// A finished run stops blocking the rack, but its last message stays on
 	// screen until the next control is fired — that message is the only thing
-	// telling the user what happened.
+	// telling the user what happened. Keyed on the run being over rather than on
+	// it having had a job id, so the free tier is released by the same line.
 	$effect(() => {
-		if (runningId && activeRun.jobId && !activeRun.running) runningId = null;
+		if (runningId && isTerminal(activeRun.state)) runningId = null;
 	});
 
 	$effect(() => () => activeRun.destroy());
@@ -121,11 +170,11 @@
 	as a change you review.
 </p>
 
-{#if error}
-	<p class="msg err">{error}</p>
-{/if}
-
-<RunProgress state={activeRun.state} oncancel={() => activeRun.cancel()} idleLabel="Working…" />
+<RunProgress
+	state={activeRun.state}
+	oncancel={activeRun.running ? () => activeRun.cancel() : undefined}
+	idleLabel="Working…"
+/>
 
 {#each byCategory as [category, list] (category)}
 	<section>
@@ -140,7 +189,9 @@
 						onclick={() => toggle(control)}
 					>
 						<span class="icon" aria-hidden="true">{control.icon ?? '·'}</span>
-						<span class="cname">{control.name}</span>
+						<span class="cname">
+							{control.name}{#if scopeLabel}<span class="scope"> · {scopeLabel}</span>{/if}
+						</span>
 						<span class="kind kind-{control.kind}">
 							{runningId === control.id ? '…' : control.free ? 'free' : control.kind}
 						</span>
@@ -250,6 +301,11 @@
 	}
 	.cname {
 		flex: 1;
+		/* A control name plus a part name — "Modal interchange · Violoncello" —
+		   outgrows a 20rem rail, so let it wrap rather than shove the tier tag
+		   off the end. Truncating would be worse: an unreadable scope is the
+		   thing this label exists to prevent. */
+		min-width: 0;
 	}
 	.kind {
 		font-size: 0.62rem;
@@ -262,12 +318,10 @@
 	.kind-code {
 		color: var(--diff-add);
 	}
-	.msg {
-		margin: 0 0 var(--space-2);
-		font-size: var(--text-xs);
+	/* Quieter than the control's own name: it qualifies the verb rather than
+	   competing with it, and it is the same on every row. */
+	.scope {
 		color: var(--fg-dim);
-	}
-	.err {
-		color: var(--danger);
+		font-size: var(--text-xs);
 	}
 </style>

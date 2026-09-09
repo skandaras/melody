@@ -42,9 +42,19 @@ export function runMigrations(): void {
 	migrate(db, { migrationsFolder: 'drizzle' });
 }
 
-/** Subdirectories of DATA_DIR that other modules assume already exist. */
+/**
+ * Subdirectories of DATA_DIR that other modules assume already exist.
+ *
+ * `exports` used to be here and never should have been. Nothing has ever
+ * written to it: every exporter in `$lib/export` runs in the browser against
+ * the document the page already holds, there is no export route, and
+ * `RetentionSettings` has no field for it despite stages/6-finish.md warning
+ * that exports "are subject to retention". It was a directory created for a
+ * feature that was never built — the same latent intent this epic keeps finding
+ * — so it goes rather than being left for someone to rediscover.
+ */
 export function ensureDataDirs(): void {
-	for (const sub of ['recordings', 'skills', 'exports']) {
+	for (const sub of ['recordings', 'skills']) {
 		mkdirSync(join(dataDir, sub), { recursive: true });
 	}
 }

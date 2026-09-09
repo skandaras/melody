@@ -5,7 +5,7 @@ import { NoModelError, NoProviderError } from '$lib/server/ai/provider';
 import { NothingToRealizeError, startRealize } from '$lib/server/ai/realize';
 import { loadScore, setPipeline } from '$lib/server/scores';
 import { melodyPartOf, sectionStates } from '$lib/pipeline/realize';
-import { nextStage } from '$lib/pipeline/types';
+import { furthest, nextStage } from '$lib/pipeline/types';
 import type { RequestHandler } from './$types';
 
 /**
@@ -93,6 +93,10 @@ function approve(scoreId: string, userId: string) {
 	if (!written) error(400, 'Write some melody before continuing.');
 
 	return json({
-		pipeline: setPipeline(scoreId, userId, { stage: nextStage('melody') ?? 'melody' })
+		// See the arrangement route: approving an earlier stage after walking back
+		// into it must not rewind how far the piece has actually got.
+		pipeline: setPipeline(scoreId, userId, {
+			stage: furthest(row.pipeline.stage, nextStage('melody') ?? 'melody')
+		})
 	});
 }

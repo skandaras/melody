@@ -126,9 +126,111 @@ export async function runStructured<T>(opts: StructuredOptions): Promise<Structu
 	}
 }
 
-/** Stream one attempt to completion, forwarding deltas as they arrive. */
+/**
+ * One model call that comes back as prose.
+ *
+ * The third runner, and a sibling of the other two rather than a mode of
+ * either. The argument against folding it into `runAgentLoop` is the one this
+ * module already makes above, and it bites harder here: the loop demotes `done`
+ * to `no_effect` whenever no operations were produced, and a prose task never
+ * produces any. `analyse` returning a page of insight would be reported
+ * identically to `analyse` saying nothing at all.
+ *
+ * It is not `runStructured` either. That one requires a schema and appends
+ * `structuredContract()` — "no commentary, no markdown fence" — to the system
+ * prompt. Both are precisely wrong for a task whose entire product is
+ * commentary.
+ *
+ * The two tasks it serves, `analyse` and `title`, have had seeded prompts and
+ * per-task model configuration since the beginning and have never been called.
+ * Neither prompt is touched here: both are already prose-shaped ("Return only
+ * the title"), and `seedTaskConfigs` is insert-if-absent, so editing
+ * `DEFAULT_PROMPTS` would reach a fresh install and no existing one. Both also
+ * ask for "a score summary" rather than the notes, which is what makes these
+ * the two cheapest calls in the application.
+ */
+export interface ProseOptions {
+	adapter: ProviderAdapter;
+	systemPrompt: string;
+	userPrompt: string;
+	maxTokens?: number;
+	effort?: ReasoningEffort;
+	reasoning?: 'on' | 'hidden' | 'off';
+	/** Progress for the SSE stream. Must not throw. */
+	onEvent?: (event: StructuredEvent) => void;
+	signal?: AbortSignal;
+}
+
+export interface ProseResult {
+	/** What the model said, trimmed. Empty unless `stopReason` is `done`. */
+	text: string;
+	usage: Usage;
+	/**
+	 * `empty` rather than `no_effect`.
+	 *
+	 * A prose task that answered with nothing has nothing to show, which is a
+	 * different fact from an edit that matched nothing. Borrowing the loop's word
+	 * would import a distinction that does not apply here — there are no ops to
+	 * have rejected.
+	 */
+	stopReason: 'done' | 'empty' | 'refused' | 'truncated' | 'aborted';
+	warnings: string[];
+}
+
+export async function runProse(opts: ProseOptions): Promise<ProseResult> {
+	const usage = emptyUsage();
+	const warnings: string[] = [];
+
+	if (opts.signal?.aborted) return stopped('aborted');
+
+	// No retry, unlike `runStructured`. That one retries because providers
+	// disagree about response schemas; there is no schema here to disagree about,
+	// so a failure is a real failure and asking twice would only cost twice.
+	let completion: Completion | null;
+	try {
+		completion = await collect(opts, opts.systemPrompt.trim(), false);
+	} catch (err) {
+		if (opts.signal?.aborted) return stopped('aborted');
+		throw err;
+	}
+
+	if (!completion) {
+		warnings.push('The model stream ended without a result.');
+		return stopped('truncated');
+	}
+
+	addUsage(usage, completion.usage);
+	opts.onEvent?.({ type: 'usage', usage: completion.usage });
+
+	if (completion.finishReason === 'content_filter') return stopped('refused');
+
+	const text = completion.content.trim();
+
+	if (completion.finishReason === 'length') {
+		// Unlike truncated JSON, truncated prose is still readable, so it is handed
+		// back rather than discarded — with a warning saying it stops mid-thought.
+		warnings.push('The model ran out of output tokens before finishing.');
+		return { text, usage, stopReason: 'truncated', warnings };
+	}
+
+	if (!text) return stopped('empty');
+	return { text, usage, stopReason: 'done', warnings };
+
+	function stopped(stopReason: ProseResult['stopReason']): ProseResult {
+		return { text: '', usage, stopReason, warnings };
+	}
+}
+
+/**
+ * Stream one attempt to completion, forwarding deltas as they arrive.
+ *
+ * Takes the schema optionally rather than requiring it, so `runProse` can share
+ * it. The two runners differ in what they do with the answer, not in how they
+ * ask — a second copy of the streaming, the delta forwarding and the abort
+ * handling would be two copies of the fiddly part.
+ */
 async function collect(
-	opts: StructuredOptions,
+	opts: Omit<StructuredOptions, 'schema'> & { schema?: StructuredOptions['schema'] },
 	system: string,
 	withSchema: boolean
 ): Promise<Completion | null> {
