@@ -1,4 +1,5 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
+import { playabilityReport } from '$lib/score/playability.js';
 import type { Score, Selection } from '$lib/score/types.js';
 import { analysisReport, renderNotes } from './context.js';
 import { INSTRUMENT_NAMES, READ_TOOL_NAMES, agentTools, type FunctionDef } from './tools.js';
@@ -321,6 +322,17 @@ function readTool(name: string, args: Record<string, unknown>, score: Score): Ca
 			return { ok: true, content: analysisReport(score, sel) };
 		case 'list_instruments':
 			return { ok: true, content: INSTRUMENT_NAMES.join('\n') };
+		case 'check_playability':
+			// Read straight off `args`, not `sel`: toSelection turns a partId into
+			// a one-element partIds array for note queries, and this asks about
+			// parts rather than notes.
+			return {
+				ok: true,
+				content: playabilityReport(
+					score,
+					typeof args.partId === 'string' ? [args.partId] : undefined
+				)
+			};
 		default:
 			return { ok: false, content: `Error: unknown tool "${name}".` };
 	}

@@ -118,9 +118,16 @@ to the same result.
 The mapping lives in **data, not code**. `controls` is a table with `category`
 and `sortOrder`, and prompt-tier controls are rows precisely so a new one needs
 no deploy. A hardcoded `CATEGORY_TO_STAGE` map in the client would throw that
-away. Add a nullable `stages` JSON column (`string[]`; null or empty means
-everywhere). Note `seedControls` is insert-if-absent by name, so existing
-installs need a one-off backfill.
+away. Add a nullable `stages` JSON column (`string[]`). Note `seedControls` is
+insert-if-absent by name, so existing installs need a one-off backfill.
+
+**As built, the column has three states rather than two.** This spec said null
+or empty means everywhere; retiring `Compose from seed` is precisely the case
+that needs a third answer, and disabling the row would have taken it out of the
+editor too. So `null` is every stage — the upgrade path, and the default for a
+control added from the admin panel — a list is exactly those stages, and `[]` is
+no stage. "Select no stages" meaning "show everywhere" was the surprising
+reading anyway.
 
 ### `analyse` is two different things
 
@@ -196,6 +203,11 @@ Chosen so the app works throughout and value lands early.
 7. **Melody** — `compose_realize` with per-section chunking.
 8. **Arrangement, Refinement, Finish**, then retire the old entry point and fix
    the dead `/library` link.
+
+Steps 1–7 and the Arrangement half of step 8 have landed. The `stages` column
+and its backfill arrived with Arrangement rather than Melody: it is one data
+model serving three stages, and bolting it onto the first of them would have
+meant designing it twice.
 
 Steps 1–4 are individually revertable. Step 5 is the one that cannot be
 half-done.

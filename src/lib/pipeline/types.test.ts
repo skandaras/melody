@@ -108,10 +108,14 @@ describe('stageRoute', () => {
 		expect(stageRoute('melody')).toBe('melody');
 	});
 
+	it('routes the arrangement to its own page', () => {
+		expect(stageRoute('arrangement')).toBe('arrangement');
+	});
+
 	it('falls through for stages that have no page yet', () => {
-		// Arrangement, refine and finish all land in the editor until each one is
-		// built. Falling through is correct; a dead link is not.
-		for (const stage of ['arrangement', 'refine', 'finish'] as const) {
+		// Refine and finish land in the editor until each one is built. Falling
+		// through is correct; a dead link is not.
+		for (const stage of ['refine', 'finish'] as const) {
 			expect(stageRoute(stage)).toBeNull();
 		}
 	});

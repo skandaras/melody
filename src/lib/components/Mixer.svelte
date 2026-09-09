@@ -24,7 +24,17 @@
 		player: PlayerStore;
 		busy: boolean;
 		oncommit: (ops: Op[], label: string) => Promise<void>;
-		onremove: (partId: string) => void;
+		/**
+		 * Delete a part outright.
+		 *
+		 * Optional, and its absence hides the button rather than disabling it.
+		 * The arrangement stage mixes and auditions parts the plan created, and
+		 * deleting one there is a change to the approved ensemble rather than a
+		 * mix decision — so it offers rejecting a part's notes under its own
+		 * name instead of quietly re-pointing a control labelled "remove this
+		 * part and its notes" at something else.
+		 */
+		onremove?: (partId: string) => void;
 	}
 	let { score, player, busy, oncommit, onremove }: Props = $props();
 
@@ -102,13 +112,15 @@
 						title="Solo — affects listening only, never the export"
 						aria-pressed={soloed}>S</button
 					>
-					<button
-						class="tag danger"
-						onclick={() => onremove(part.id)}
-						disabled={busy}
-						title="Remove this part and its notes"
-						aria-label="Remove {part.name}">×</button
-					>
+					{#if onremove}
+						<button
+							class="tag danger"
+							onclick={() => onremove(part.id)}
+							disabled={busy}
+							title="Remove this part and its notes"
+							aria-label="Remove {part.name}">×</button
+						>
+					{/if}
 				</div>
 				<div class="row">
 					<input

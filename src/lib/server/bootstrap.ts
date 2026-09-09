@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db, dataDir } from './db/index.js';
 import {
 	CORE_TASKS,
@@ -76,11 +76,47 @@ export function seedControls(): void {
 				systemPrompt: c.systemPrompt ?? null,
 				paramsSchema: c.paramsSchema ?? null,
 				defaultParams: c.defaultParams ?? null,
+				stages: c.stages,
 				builtin: true,
 				enabled: true,
 				sortOrder: i
 			})
 			.run();
+	}
+	backfillControlStages();
+}
+
+/**
+ * Give the built-in rows of an existing install the stage list they were
+ * seeded before this column existed.
+ *
+ * Needed because `seedControls` is insert-if-absent by name: every one of the
+ * 29 built-ins is already present in any install that has booted once, so the
+ * loop above skips all of them and their `stages` stays null — which reads as
+ * "every stage" and would put all 29 on every stage page, the exact thing
+ * scoping exists to prevent.
+ *
+ * Narrow on purpose, and idempotent for the same reason the seed is. Only
+ * built-in rows, and only those still null: an admin who has scoped a control
+ * by hand — including to `[]`, which is not null — keeps their answer, and a
+ * second boot finds nothing left to do.
+ */
+function backfillControlStages(): void {
+	const byName = new Map(BUILTIN_CONTROLS.map((c) => [c.name, c.stages]));
+
+	const stale = db
+		.select({ id: controls.id, name: controls.name })
+		.from(controls)
+		.where(and(eq(controls.builtin, true), isNull(controls.stages)))
+		.all();
+
+	for (const row of stale) {
+		const stages = byName.get(row.name);
+		// A built-in row whose name is no longer in the list was renamed in the
+		// admin panel. Leaving it null keeps it everywhere, which is where it is
+		// today — a guess at what it used to be would be worse.
+		if (!stages) continue;
+		db.update(controls).set({ stages }).where(eq(controls.id, row.id)).run();
 	}
 }
 

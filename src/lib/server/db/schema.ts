@@ -226,6 +226,23 @@ export const controls = sqliteTable(
 		/** JSON Schema for the control's parameters, drives the generated UI. */
 		paramsSchema: text('params_schema', { mode: 'json' }).$type<Record<string, unknown>>(),
 		defaultParams: text('default_params', { mode: 'json' }).$type<Record<string, unknown>>(),
+		/**
+		 * Which pipeline stages offer this control, as `Stage[]`.
+		 *
+		 * The mapping is data rather than a `CATEGORY_TO_STAGE` map in the
+		 * client, because prompt-tier controls are rows precisely so a new one
+		 * needs no deploy — and a hardcoded map would throw that away the first
+		 * time someone added one from the admin panel.
+		 *
+		 * Three states, all meaningful:
+		 *   null  every stage. The column default, so a row written before this
+		 *         existed and a control added from the admin panel both behave
+		 *         the way they did before rather than vanishing.
+		 *   []    no stage. How a control is retired from the staged flow while
+		 *         staying available in the unscoped editor.
+		 *   [...] exactly those stages.
+		 */
+		stages: text('stages', { mode: 'json' }).$type<string[]>(),
 		/** Seeded built-ins are protected from deletion; user rows are not. */
 		builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
 		enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),

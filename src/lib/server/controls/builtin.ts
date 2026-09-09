@@ -1,3 +1,4 @@
+import type { Stage } from '$lib/pipeline/types.js';
 import type { ControlKind } from '../db/schema.js';
 
 /**
@@ -40,6 +41,15 @@ export interface BuiltinControl {
 	systemPrompt?: string;
 	paramsSchema?: Record<string, unknown>;
 	defaultParams?: Record<string, unknown>;
+	/**
+	 * Which stages offer this control. See `controls.stages` in the schema for
+	 * why null, [] and a list are three different answers.
+	 *
+	 * Every built-in states one, including the two that state `[]`. Leaving a
+	 * built-in unset would mean "every stage", which for a rack of 29 is the
+	 * thing scoping exists to stop.
+	 */
+	stages: Stage[];
 }
 
 /** Shared preamble for every prompt-tier control. */
@@ -75,6 +85,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Transpose',
 		category: 'Pitch',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '↕',
 		description: 'Move the selection by an interval, chromatically or within the key.',
@@ -92,6 +103,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Fit to key',
 		category: 'Pitch',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '♯',
 		description:
@@ -102,6 +114,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Quantise',
 		category: 'Rhythm',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '⊞',
 		description: 'Pull note starts onto a rhythmic grid. Strength below 1 keeps some human feel.',
@@ -125,6 +138,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Swing',
 		category: 'Rhythm',
+		stages: ['melody', 'refine'],
 		kind: 'code',
 		icon: '𝅘𝅥𝅮',
 		description: 'Delay off-beats for a shuffle or swing feel. 0.5 straight, 0.67 classic swing.',
@@ -140,6 +154,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Humanise',
 		category: 'Rhythm',
+		stages: ['melody', 'refine'],
 		kind: 'code',
 		icon: '～',
 		description:
@@ -160,6 +175,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Half-time',
 		category: 'Rhythm',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '½',
 		description: 'Stretch the selection to twice its length. Augmentation.',
@@ -169,6 +185,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Double-time',
 		category: 'Rhythm',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '×2',
 		description: 'Compress the selection to half its length. Diminution.',
@@ -178,6 +195,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Invert',
 		category: 'Development',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '⇅',
 		description: 'Mirror the melody around a pitch axis — rising intervals become falling ones.',
@@ -187,6 +205,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Retrograde',
 		category: 'Development',
+		stages: ['melody'],
 		kind: 'code',
 		icon: '⇄',
 		description: 'Play the selection backwards.',
@@ -196,6 +215,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Crescendo',
 		category: 'Dynamics',
+		stages: ['refine'],
 		kind: 'code',
 		icon: '<',
 		description: 'Ramp velocity upward across the selection.',
@@ -214,6 +234,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Diminuendo',
 		category: 'Dynamics',
+		stages: ['refine'],
 		kind: 'code',
 		icon: '>',
 		description: 'Ramp velocity downward across the selection.',
@@ -227,6 +248,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 	{
 		name: 'Darken',
 		category: 'Colour & mood',
+		stages: ['refine'],
 		kind: 'prompt',
 		icon: '◐',
 		description:
@@ -248,6 +270,7 @@ Keep the melody recognisable. Do not change the tempo unless the amount is above
 	{
 		name: 'Brighten',
 		category: 'Colour & mood',
+		stages: ['refine'],
 		kind: 'prompt',
 		icon: '◑',
 		description: 'Open the music up — higher register, major inflections, more air between voices.',
@@ -268,6 +291,7 @@ Keep the melody recognisable.`,
 	{
 		name: 'Warmth',
 		category: 'Colour & mood',
+		stages: ['refine'],
 		kind: 'prompt',
 		icon: '◍',
 		description: 'Fuller, rounder, more consonant — thirds and sixths, gentler attacks.',
@@ -286,6 +310,7 @@ Warmth comes from consonance and register, not volume:
 	{
 		name: 'Add tension',
 		category: 'Colour & mood',
+		stages: ['refine'],
 		kind: 'prompt',
 		icon: '◭',
 		description: 'Build harmonic and rhythmic unease — suspensions, dissonance, instability.',
@@ -306,6 +331,7 @@ At high amounts, deliberately withhold the resolution the ear expects.`,
 	{
 		name: 'Release',
 		category: 'Colour & mood',
+		stages: ['refine'],
 		kind: 'prompt',
 		icon: '◡',
 		description: 'Resolve tension — cadence, settle the rhythm, come to rest.',
@@ -324,6 +350,7 @@ Resolve rather than merely soften:
 	{
 		name: 'Enrich harmony',
 		category: 'Colour & mood',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '◈',
 		description: 'Add extensions and colour tones — 7ths, 9ths, richer voicings.',
@@ -343,6 +370,7 @@ Do not change the melody.`,
 	{
 		name: 'Simplify harmony',
 		category: 'Colour & mood',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '◇',
 		description: 'Strip back to essentials — triads, fewer voices, clearer motion.',
@@ -362,6 +390,7 @@ The progression must still sound like the same music, only plainer.`,
 	{
 		name: 'Reharmonise',
 		category: 'Colour & mood',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '⟳',
 		description: 'Keep the melody, rewrite the chords underneath it.',
@@ -381,6 +410,7 @@ State the new progression in the operation notes as roman numerals so the change
 	{
 		name: 'Modal interchange',
 		category: 'Colour & mood',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '◑',
 		description: 'Borrow chords from the parallel major or minor.',
@@ -396,6 +426,7 @@ Place borrowed chords where they will be heard — approaching a cadence, or at 
 	{
 		name: 'Add counter-melody',
 		category: 'Colour & mood',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '≈',
 		description: 'Write a second line that answers the melody.',
@@ -415,6 +446,7 @@ Insert it into the part named in the selection if one is given, otherwise add a 
 	{
 		name: 'Add genre influence',
 		category: 'Style & genre',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '◎',
 		description:
@@ -451,6 +483,7 @@ Work from the idiom's actual devices — its characteristic rhythm cells, voicin
 	{
 		name: 'Increase energy',
 		category: 'Energy',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '▲',
 		description: 'More drive — density, register, rhythmic activity, dynamics.',
@@ -471,6 +504,7 @@ Do not change the tempo — that is a separate decision.`,
 	{
 		name: 'Reduce energy',
 		category: 'Energy',
+		stages: ['arrangement'],
 		kind: 'prompt',
 		icon: '▼',
 		description: 'Pull back — thinner, lower, calmer, more space.',
@@ -494,6 +528,7 @@ Do not change the tempo.`,
 	{
 		name: 'Orchestrate as…',
 		category: 'Orchestration',
+		stages: ['arrangement'],
 		kind: 'agent',
 		icon: '♬',
 		description:
@@ -542,6 +577,7 @@ Keep the existing music as the basis — this is an arrangement, not a new piece
 	{
 		name: 'Extend',
 		category: 'Form',
+		stages: ['melody'],
 		kind: 'agent',
 		icon: '→',
 		description: 'Continue the music for a number of bars in the same spirit.',
@@ -575,6 +611,7 @@ Append to the end of the existing music. Do not modify what is already there.`,
 	{
 		name: 'Develop',
 		category: 'Form',
+		stages: ['melody'],
 		kind: 'agent',
 		icon: '✧',
 		description: 'Vary the existing material — sequence, inversion, augmentation, fragmentation.',
@@ -598,6 +635,7 @@ Read and analyse first. Then use real developmental techniques — sequence, inv
 	{
 		name: 'Add section',
 		category: 'Form',
+		stages: ['arrangement'],
 		kind: 'agent',
 		icon: '⊕',
 		description: 'Write an intro, bridge, outro or transition that fits what is already there.',
@@ -635,9 +673,16 @@ Mark what you write with set_section so it is navigable afterwards.`,
 		},
 		defaultParams: { kind: 'a bridge', bars: 8, position: 'at the end' }
 	},
+	// Retired from the staged flow, which is why its stage list is empty rather
+	// than absent. This control *is* the pipeline — plan the form, then realise
+	// it section by section — so offering it inside the six stages that now do
+	// exactly that would be two contradictory routes to one result. It stays
+	// enabled for the unscoped editor, where it is still the only way to get
+	// from a seed to a piece in one move.
 	{
 		name: 'Compose from seed',
 		category: 'Form',
+		stages: [],
 		kind: 'agent',
 		icon: '✦',
 		description:

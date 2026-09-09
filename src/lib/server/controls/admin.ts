@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
+import { isStage } from '$lib/pipeline/types.js';
 import { db } from '../db/index.js';
 import { controls, type ControlKind } from '../db/schema.js';
 import { OP_MAP } from '$lib/score/ops/index.js';
@@ -27,6 +28,8 @@ export interface AdminControlView {
 	systemPrompt: string | null;
 	paramsSchema: Record<string, unknown> | null;
 	defaultParams: Record<string, unknown> | null;
+	/** Which stages offer it. Null is every stage; [] is none. */
+	stages: string[] | null;
 	builtin: boolean;
 	enabled: boolean;
 	sortOrder: number;
@@ -45,10 +48,26 @@ function view(c: typeof controls.$inferSelect): AdminControlView {
 		systemPrompt: c.systemPrompt,
 		paramsSchema: c.paramsSchema,
 		defaultParams: c.defaultParams,
+		stages: c.stages,
 		builtin: c.builtin,
 		enabled: c.enabled,
 		sortOrder: c.sortOrder
 	};
+}
+
+/**
+ * Read a stage list off an admin patch.
+ *
+ * Null and an empty array are both kept, because they mean different things —
+ * every stage and no stage. Unknown names are dropped rather than rejected: a
+ * stage that has been renamed should cost that one entry, not the whole save.
+ */
+function coerceStages(value: unknown): string[] | null {
+	if (value === null) return null;
+	if (!Array.isArray(value)) {
+		throw new ControlValidationError('Stages must be an array of stage names, or null.');
+	}
+	return [...new Set(value.filter(isStage))];
 }
 
 export function listAdminControls(): AdminControlView[] {
@@ -115,6 +134,10 @@ export function updateControl(id: string, patch: Partial<AdminControlView>): Adm
 		}
 		next.defaultParams = patch.defaultParams;
 	}
+	// Editable on every tier, unlike the prompt fields below. Where a control
+	// is offered is a placement decision, and a `code` control has one for the
+	// same reason a `prompt` one does.
+	if (patch.stages !== undefined) next.stages = coerceStages(patch.stages);
 
 	if (row.kind === 'code') {
 		// A code control's opName is not editable — its behaviour is code in
@@ -161,6 +184,8 @@ export interface CreateControlInput {
 	systemPrompt?: string | null;
 	paramsSchema?: Record<string, unknown> | null;
 	defaultParams?: Record<string, unknown> | null;
+	/** Omitted means every stage, which is the safe default for a new row. */
+	stages?: string[] | null;
 }
 
 export function createControl(input: CreateControlInput): AdminControlView {
@@ -201,6 +226,7 @@ export function createControl(input: CreateControlInput): AdminControlView {
 			systemPrompt: input.systemPrompt?.trim() || null,
 			paramsSchema: input.paramsSchema ?? null,
 			defaultParams: input.defaultParams ?? null,
+			stages: input.stages === undefined ? null : coerceStages(input.stages),
 			builtin: false,
 			enabled: true,
 			sortOrder: (last?.sortOrder ?? 0) + 1

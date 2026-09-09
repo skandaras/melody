@@ -208,6 +208,92 @@ export function buildRealizeContext(args: {
 	return lines.join('\n');
 }
 
+/**
+ * The user-turn content for one part of an arrangement.
+ *
+ * Same stable-to-volatile ordering as the other two builders, and assembled
+ * from the same primitives. What differs is what the model is being asked to
+ * hold in mind: a realization writes forwards in time against the bars before
+ * it, while an arrangement writes *downwards* against the parts beside it. So
+ * the melody comes first and in full — it is the thing being supported — and
+ * the parts already written come next, because "who supports, who rests" is
+ * unanswerable without knowing what the others are already doing.
+ */
+export function buildArrangeContext(args: {
+	score: Score;
+	/** The plan, as prose, so the arrangement serves a form. */
+	planSummary: string;
+	/** The part this call may write into. */
+	partId: string;
+	partName: string;
+	instrument: string;
+	/** The tune being arranged around. Read-only here. */
+	melodyPartId: string | null;
+	/** Accompaniment parts already written, so this one can make room. */
+	writtenPartIds: readonly string[];
+	/** Free-text direction, for a rewrite rather than a first pass. */
+	instruction?: string;
+	opts?: ContextOptions;
+}): string {
+	const { score, partId } = args;
+	const lines = [describeScore(score), '', 'The plan:', args.planSummary];
+
+	// The plan names instruments, not jobs — `PlanPart` is a name and a General
+	// MIDI instrument and nothing else — so what this part *does* is genuinely
+	// undecided here, and saying so is more useful than dressing the plan's
+	// display name up as a role it never was.
+	lines.push(
+		'',
+		`Write the part for ${args.partName} (${args.instrument}).`,
+		'The plan names the instrument but not its job. Decide one that serves the piece, given what the other parts are already doing.'
+	);
+
+	// The tune, in full rather than as a summary. An arranger who cannot see the
+	// melody is guessing at the one thing every other part exists to support.
+	if (args.melodyPartId && args.melodyPartId !== partId) {
+		lines.push(
+			'',
+			'The melody, which this part accompanies. Do not edit it:',
+			renderNotes(score, { partIds: [args.melodyPartId] }, args.opts)
+		);
+	}
+
+	// What the other parts are already doing. Without this each part is written
+	// as though it were the only accompaniment, which is how an arrangement ends
+	// up as four instruments playing the same rhythm.
+	const others = args.writtenPartIds.filter((id) => id !== partId && id !== args.melodyPartId);
+	if (others.length) {
+		lines.push(
+			'',
+			'The accompaniment written so far. Make room for it rather than doubling it:',
+			renderNotes(score, { partIds: [...others] }, args.opts)
+		);
+	}
+
+	// Same reasoning as a realization rewrite: insert_notes adds, so a second
+	// pass over a part that already has notes would layer one arrangement on top
+	// of another and sound like both.
+	const existing = renderNotes(score, { partIds: [partId] }, args.opts);
+	if (!existing.startsWith('(no notes')) {
+		lines.push(
+			'',
+			'This part already has notes in it:',
+			existing,
+			'',
+			`You are replacing them. Delete them first with replace_range on part ${partId}, or insert_notes will add your new part on top of the old one.`
+		);
+	}
+
+	lines.push(
+		'',
+		`Write into part ${partId} only. Do not add or remove parts: the ensemble was decided when the plan was approved, and every instrument in it already exists.`,
+		'Check your work with check_playability before you finish.'
+	);
+
+	if (args.instruction) lines.push('', `The person asked for: ${args.instruction}`);
+	return lines.join('\n');
+}
+
 /** The plan as a few lines of prose, for a realization's prompt. */
 export function planSummary(plan: {
 	title: string;

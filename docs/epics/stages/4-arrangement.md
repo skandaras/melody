@@ -48,16 +48,25 @@ The accompaniment parts. Approving moves to Refinement.
 - **The ensemble was already decided in the Plan.** This stage realizes it; it
   should not silently invent new instruments. If `Orchestrate as…` wants a part
   the plan did not name, that is a plan change and should say so.
+  **Resolved:** chunks come from `plan.ensemble`, and `addedParts()` compares
+  the part list either side of each call so an invented instrument is kept but
+  reported. Not prevented: withholding `add_part` from the tool list is ruled
+  out by `tools.ts`, which keeps the list identical for every task so the cached
+  prefix survives.
 - **`add_part` wraps channels past 16** (`ops/parts.ts:38-43`), skipping 9 for
   drums. With the plan capped at 15 non-drum parts this is safe, but an
   `Add section` or `Orchestrate as…` that adds parts here can still exceed it.
-- **Instrument ranges.** The prompt asks the model to check each part stays in
-  range, and `list_instruments` (`tools.ts:191-248`) is available as a read
-  tool. Whether ranges are actually enforced anywhere is worth checking before
-  relying on the prompt alone.
-- **Per-part accept/reject vs. one revision per turn.** Today an AI turn lands
-  as a single revision with a single `pendingDiff`. Per-part granularity either
-  needs the diff split by part at review time, or one run per part.
+- **Instrument ranges.** **Checked, and the answer was no.** Nothing enforced
+  them anywhere: `INSTRUMENT_RANGES` was used by no caller despite its own
+  comment claiming otherwise, and `check_playability` — which the
+  `Orchestrate as…` prompt has instructed the model to call, as step 5 of 5,
+  since it was written — did not exist. `$lib/score/playability.ts` is that
+  check, wired as a read tool and warned on after each part.
+- **Per-part accept/reject vs. one revision per turn.** **Resolved by the
+  chunking axis.** The part is the unit of a call, so it is also the unit of
+  review: a run still lands as one accepted revision, and rejecting one part
+  deletes its notes as its own revision. No diff splitting and no second
+  pending slot.
 
 ## Open questions
 
@@ -65,5 +74,15 @@ The accompaniment parts. Approving moves to Refinement.
   stage owns — but wanting a bridge usually only becomes obvious once you can
   hear the thing. Leaning: keep it here, and have it write back into the stored
   plan so the two do not drift.
+  **Still open.** It is offered here, and the write-back is *not* built: a
+  section added from this page is invisible to `plan.sections`, so the melody
+  stage will not realize it. `controls/run.ts` is stage-agnostic and has no
+  notion of a plan, so the sync needs a seam that does not exist yet.
 - Should the melody part be locked against edits at this stage, so arranging
   cannot quietly rewrite the tune that was already approved?
+  **Answered: not locked, but never targeted and always checked.** No run is
+  given the melody as a chunk, every prompt names the one part it may write to,
+  and `melodyChanged()` compares the tune either side of each call and warns if
+  it moved. Controls on the page are scoped to the accompaniment for the same
+  reason — and withheld entirely on a solo piece, because an empty `partIds`
+  resolves to the whole score rather than to nothing.

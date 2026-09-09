@@ -226,7 +226,8 @@ export function isStage(value: unknown): value is Stage {
  */
 const STAGE_ROUTES: Partial<Record<Stage, string>> = {
 	plan: 'plan',
-	melody: 'melody'
+	melody: 'melody',
+	arrangement: 'arrangement'
 };
 
 /** The path segment for a stage's own page, or null if it has none yet. */

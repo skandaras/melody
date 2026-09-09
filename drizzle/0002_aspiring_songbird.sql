@@ -1,0 +1,1 @@
+ALTER TABLE `controls` ADD `stages` text;

@@ -244,6 +244,26 @@ export const READ_TOOLS: FunctionDef[] = [
 			strict: true,
 			parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
 		}
+	},
+	// The `Orchestrate as…` control has instructed the model to call this since
+	// the control was written — step 5 of its five-step system prompt — and until
+	// now there was no such tool to call. See $lib/score/playability.ts.
+	{
+		type: 'function',
+		function: {
+			name: 'check_playability',
+			description:
+				"Check that every note written for a part is inside its instrument's practical range. Call this after writing a part. Drum parts are not checked, because a drum pitch names a kit piece rather than a note.",
+			strict: true,
+			parameters: {
+				type: 'object',
+				properties: {
+					partId: { type: ['string', 'null'], description: 'Omit or null for every part.' }
+				},
+				required: ['partId'],
+				additionalProperties: false
+			}
+		}
 	}
 ];
 
