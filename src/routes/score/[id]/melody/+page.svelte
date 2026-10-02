@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
+	import ControlRack from '$lib/components/ControlRack.svelte';
+	import PendingReview, { type Pending } from '$lib/components/PendingReview.svelte';
 	import RunProgress from '$lib/components/RunProgress.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -35,6 +37,8 @@
 	let error = $state('');
 	let busy = $state(false);
 	let scale = $state(1);
+	// svelte-ignore state_referenced_locally
+	let pending = $state<Pending | null>(untrack(() => data.pending));
 
 	// svelte-ignore state_referenced_locally
 	const player = new PlayerStore(() => data.soundfontUrl, {
@@ -54,7 +58,11 @@
 	const written = $derived(sections.filter((s) => s.state === 'written').length);
 	const allWritten = $derived(sections.length > 0 && written === sections.length);
 	const parts = $derived(doc.parts.map((p) => ({ id: p.id, name: p.name })));
-	const canRun = $derived(data.canGenerate && !run.running && !busy);
+	// A staged change blocks every other write: rejecting it would discard
+	// anything that landed on top. The server refuses too; this just says so
+	// before anyone presses a button.
+	const canRun = $derived(data.canGenerate && !run.running && !busy && !pending);
+	const selection = $derived(selected.size ? { noteIds: [...selected] } : {});
 
 	/**
 	 * The selected section, if it still exists.
@@ -224,6 +232,41 @@
 			</p>
 		{/if}
 
+		{#if pending}
+			<PendingReview
+				scoreId={data.score.id}
+				{pending}
+				onresolved={(next) => {
+					doc = next;
+					pending = null;
+					selected = new Set();
+				}}
+			/>
+		{/if}
+
+		{#if data.controls.length}
+			<details class="rack">
+				<summary>Controls</summary>
+				<ControlRack
+					scoreId={data.score.id}
+					controls={data.controls}
+					{selection}
+					busy={run.running || busy || pending !== null}
+					onapplied={(r) => (doc = r.doc)}
+					onstaged={(r) => {
+						doc = r.doc;
+						pending = {
+							revisionId: r.revisionId,
+							label: r.label,
+							added: r.diff.added.length,
+							changed: r.diff.changed.length,
+							removed: r.diff.removed.length
+						};
+					}}
+				/>
+			</details>
+		{/if}
+
 		{#if run.state.outcome !== 'idle'}
 			<RunProgress
 				state={run.state}
@@ -240,7 +283,11 @@
 		<footer>
 			<a class="skip" href="/score/{data.score.id}/plan">Back to the plan</a>
 			<a class="skip" href="/score/{data.score.id}/bench">Open in Bench</a>
-			<button class="btn primary" onclick={approve} disabled={busy || run.running || written === 0}>
+			<button
+				class="btn primary"
+				onclick={approve}
+				disabled={busy || run.running || written === 0 || pending !== null}
+			>
 				{busy ? 'Continuing…' : 'Approve and continue'}
 			</button>
 		</footer>
@@ -383,6 +430,15 @@
 	}
 	.section .bars {
 		font-size: var(--text-xs);
+	}
+
+	.rack summary {
+		cursor: pointer;
+		font-size: var(--text-xs);
+		color: var(--fg-dim);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		margin-bottom: var(--space-2);
 	}
 
 	.banner {

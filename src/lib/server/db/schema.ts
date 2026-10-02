@@ -229,7 +229,18 @@ export const controls = sqliteTable(
 		/** Seeded built-ins are protected from deletion; user rows are not. */
 		builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
 		enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-		sortOrder: integer('sort_order').notNull().default(0)
+		sortOrder: integer('sort_order').notNull().default(0),
+		/**
+		 * The pipeline stages this control is offered at.
+		 *
+		 * Data rather than a client-side category map, for the same reason
+		 * prompt controls are rows: a new one should need no deploy. Null and
+		 * empty both mean everywhere, but they are not the same fact — null is
+		 * "never assigned", which the seed backfills from the built-in list,
+		 * while `[]` is an admin having chosen everywhere on purpose, which the
+		 * backfill must leave alone.
+		 */
+		stages: text('stages', { mode: 'json' }).$type<Stage[]>()
 	},
 	(t) => [index('controls_category_sort_idx').on(t.category, t.sortOrder)]
 );

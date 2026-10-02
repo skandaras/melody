@@ -1,3 +1,4 @@
+import type { Stage } from '$lib/pipeline/types.js';
 import type { ControlKind } from '../db/schema.js';
 
 /**
@@ -20,7 +21,7 @@ import type { ControlKind } from '../db/schema.js';
  *   agent   A tool-use loop. The model reads the score, decides, writes, and
  *           can check its own work across several turns. Reserved for jobs
  *           that genuinely cannot be done in one shot — orchestration,
- *           extending a piece, composing from a seed.
+ *           extending a piece, adding a section.
  *
  * When in doubt, prefer the cheapest tier that can express the job. A control
  * that could be `code` but is written as `prompt` is a latent bug: it will be
@@ -40,6 +41,11 @@ export interface BuiltinControl {
 	systemPrompt?: string;
 	paramsSchema?: Record<string, unknown>;
 	defaultParams?: Record<string, unknown>;
+	/**
+	 * The pipeline stages that offer this control. Every built-in names its
+	 * stages, so a rack never has to guess from the category.
+	 */
+	stages: Stage[];
 }
 
 /** Shared preamble for every prompt-tier control. */
@@ -76,6 +82,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Transpose',
 		category: 'Pitch',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '↕',
 		description: 'Move the selection by an interval, chromatically or within the key.',
 		opName: 'transpose',
@@ -93,6 +100,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Fit to key',
 		category: 'Pitch',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '♯',
 		description:
 			'Snap out-of-key notes to the nearest note of the key signature. The usual first fix after transcription.',
@@ -103,6 +111,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Quantise',
 		category: 'Rhythm',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '⊞',
 		description: 'Pull note starts onto a rhythmic grid. Strength below 1 keeps some human feel.',
 		opName: 'quantise',
@@ -126,6 +135,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Swing',
 		category: 'Rhythm',
 		kind: 'code',
+		stages: ['melody', 'refine'],
 		icon: '𝅘𝅥𝅮',
 		description: 'Delay off-beats for a shuffle or swing feel. 0.5 straight, 0.67 classic swing.',
 		opName: 'swing',
@@ -141,6 +151,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Humanise',
 		category: 'Rhythm',
 		kind: 'code',
+		stages: ['melody', 'refine'],
 		icon: '～',
 		description:
 			'Nudge timing and velocity so playback stops sounding mechanical. Same seed gives the same result every time.',
@@ -161,6 +172,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Half-time',
 		category: 'Rhythm',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '½',
 		description: 'Stretch the selection to twice its length. Augmentation.',
 		opName: 'scale_time',
@@ -170,6 +182,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Double-time',
 		category: 'Rhythm',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '×2',
 		description: 'Compress the selection to half its length. Diminution.',
 		opName: 'scale_time',
@@ -179,6 +192,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Invert',
 		category: 'Development',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '⇅',
 		description: 'Mirror the melody around a pitch axis — rising intervals become falling ones.',
 		opName: 'invert',
@@ -188,6 +202,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Retrograde',
 		category: 'Development',
 		kind: 'code',
+		stages: ['melody'],
 		icon: '⇄',
 		description: 'Play the selection backwards.',
 		opName: 'retrograde',
@@ -197,6 +212,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Crescendo',
 		category: 'Dynamics',
 		kind: 'code',
+		stages: ['refine'],
 		icon: '<',
 		description: 'Ramp velocity upward across the selection.',
 		opName: 'set_velocity_curve',
@@ -215,6 +231,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Diminuendo',
 		category: 'Dynamics',
 		kind: 'code',
+		stages: ['refine'],
 		icon: '>',
 		description: 'Ramp velocity downward across the selection.',
 		opName: 'set_velocity_curve',
@@ -228,6 +245,7 @@ export const BUILTIN_CONTROLS: BuiltinControl[] = [
 		name: 'Darken',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['refine'],
 		icon: '◐',
 		description:
 			'Shift the music toward a darker colour — lower register, minor inflections, heavier voicings.',
@@ -249,6 +267,7 @@ Keep the melody recognisable. Do not change the tempo unless the amount is above
 		name: 'Brighten',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['refine'],
 		icon: '◑',
 		description: 'Open the music up — higher register, major inflections, more air between voices.',
 		systemPrompt: PATCH_CONTRACT,
@@ -269,6 +288,7 @@ Keep the melody recognisable.`,
 		name: 'Warmth',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['refine'],
 		icon: '◍',
 		description: 'Fuller, rounder, more consonant — thirds and sixths, gentler attacks.',
 		systemPrompt: PATCH_CONTRACT,
@@ -287,6 +307,7 @@ Warmth comes from consonance and register, not volume:
 		name: 'Add tension',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['refine'],
 		icon: '◭',
 		description: 'Build harmonic and rhythmic unease — suspensions, dissonance, instability.',
 		systemPrompt: PATCH_CONTRACT,
@@ -307,6 +328,7 @@ At high amounts, deliberately withhold the resolution the ear expects.`,
 		name: 'Release',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['refine'],
 		icon: '◡',
 		description: 'Resolve tension — cadence, settle the rhythm, come to rest.',
 		systemPrompt: PATCH_CONTRACT,
@@ -325,6 +347,7 @@ Resolve rather than merely soften:
 		name: 'Enrich harmony',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '◈',
 		description: 'Add extensions and colour tones — 7ths, 9ths, richer voicings.',
 		systemPrompt: PATCH_CONTRACT,
@@ -344,6 +367,7 @@ Do not change the melody.`,
 		name: 'Simplify harmony',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '◇',
 		description: 'Strip back to essentials — triads, fewer voices, clearer motion.',
 		systemPrompt: PATCH_CONTRACT,
@@ -363,6 +387,7 @@ The progression must still sound like the same music, only plainer.`,
 		name: 'Reharmonise',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '⟳',
 		description: 'Keep the melody, rewrite the chords underneath it.',
 		systemPrompt: PATCH_CONTRACT,
@@ -382,6 +407,7 @@ State the new progression in the operation notes as roman numerals so the change
 		name: 'Modal interchange',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '◑',
 		description: 'Borrow chords from the parallel major or minor.',
 		systemPrompt: PATCH_CONTRACT,
@@ -397,6 +423,7 @@ Place borrowed chords where they will be heard — approaching a cadence, or at 
 		name: 'Add counter-melody',
 		category: 'Colour & mood',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '≈',
 		description: 'Write a second line that answers the melody.',
 		systemPrompt: PATCH_CONTRACT,
@@ -416,6 +443,7 @@ Insert it into the part named in the selection if one is given, otherwise add a 
 		name: 'Add genre influence',
 		category: 'Style & genre',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '◎',
 		description:
 			'Push the music toward a named style. Free text or a preset, with an amount dial.',
@@ -452,6 +480,7 @@ Work from the idiom's actual devices — its characteristic rhythm cells, voicin
 		name: 'Increase energy',
 		category: 'Energy',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '▲',
 		description: 'More drive — density, register, rhythmic activity, dynamics.',
 		systemPrompt: PATCH_CONTRACT,
@@ -472,6 +501,7 @@ Do not change the tempo — that is a separate decision.`,
 		name: 'Reduce energy',
 		category: 'Energy',
 		kind: 'prompt',
+		stages: ['arrangement'],
 		icon: '▼',
 		description: 'Pull back — thinner, lower, calmer, more space.',
 		systemPrompt: PATCH_CONTRACT,
@@ -495,6 +525,7 @@ Do not change the tempo.`,
 		name: 'Orchestrate as…',
 		category: 'Orchestration',
 		kind: 'agent',
+		stages: ['arrangement'],
 		icon: '♬',
 		description:
 			'Arrange the music for a named ensemble, writing an idiomatic part for each instrument.',
@@ -543,6 +574,7 @@ Keep the existing music as the basis — this is an arrangement, not a new piece
 		name: 'Extend',
 		category: 'Form',
 		kind: 'agent',
+		stages: ['melody'],
 		icon: '→',
 		description: 'Continue the music for a number of bars in the same spirit.',
 		systemPrompt: `You continue existing music inside a score editor.
@@ -576,6 +608,7 @@ Append to the end of the existing music. Do not modify what is already there.`,
 		name: 'Develop',
 		category: 'Form',
 		kind: 'agent',
+		stages: ['melody'],
 		icon: '✧',
 		description: 'Vary the existing material — sequence, inversion, augmentation, fragmentation.',
 		systemPrompt: `You develop musical material inside a score editor, in the classical sense: taking an idea and showing it from new angles.
@@ -599,6 +632,7 @@ Read and analyse first. Then use real developmental techniques — sequence, inv
 		name: 'Add section',
 		category: 'Form',
 		kind: 'agent',
+		stages: ['arrangement'],
 		icon: '⊕',
 		description: 'Write an intro, bridge, outro or transition that fits what is already there.',
 		systemPrompt: `You write structural sections inside a score editor.
@@ -634,45 +668,6 @@ Mark what you write with set_section so it is navigable afterwards.`,
 			additionalProperties: false
 		},
 		defaultParams: { kind: 'a bridge', bars: 8, position: 'at the end' }
-	},
-	{
-		name: 'Compose from seed',
-		category: 'Form',
-		kind: 'agent',
-		icon: '✦',
-		description:
-			'Grow a short idea into a full piece: plan the form first, then write it section by section.',
-		systemPrompt: `You compose complete pieces from a short seed, inside a score editor.
-
-Work in two stages, and do not skip the first.
-
-STAGE 1 — plan. Read and analyse the seed. Decide and state: key, tempo, time signature, instrumentation, and the form as a list of named sections with bar counts and a harmonic sketch for each. Keep it to a few lines.
-
-STAGE 2 — realise. Write the piece section by section, in order. After each section, mark it with set_section. Work through the whole plan; do not stop after the first section.
-
-Throughout:
-- the seed must be audible in the finished piece, as the main theme or its most important motif
-- give the piece a shape: something has to develop, not merely repeat
-- vary texture between sections — that is what stops a piece sounding like a loop`,
-		promptTemplate: `Compose a complete piece from this seed.
-
-Length: about {{bars}} bars. Style: {{style}}. Ensemble: {{ensemble}}.
-
-{{#direction}}Direction: {{direction}}{{/direction}}
-
-Plan the form first, then write it.`,
-		paramsSchema: {
-			type: 'object',
-			properties: {
-				bars: { type: 'integer', minimum: 8, maximum: 256, title: 'Length in bars' },
-				style: { type: 'string', title: 'Style' },
-				ensemble: { type: 'string', title: 'Ensemble' },
-				direction: { type: 'string', title: 'Direction' }
-			},
-			required: ['bars', 'style', 'ensemble'],
-			additionalProperties: false
-		},
-		defaultParams: { bars: 32, style: 'Cinematic', ensemble: 'Solo piano' }
 	}
 ];
 

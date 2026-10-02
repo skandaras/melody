@@ -8,9 +8,12 @@ import {
 	commitOps,
 	createScore,
 	listRevisions,
+	acceptRevision,
 	loadScore,
+	rejectRevision,
 	restoreRevision,
-	setPipeline
+	setPipeline,
+	stagedRevision
 } from './scores.js';
 
 /**
@@ -208,5 +211,43 @@ describe('approving a plan', () => {
 		const after = loadScore(row.id, user);
 		expect(after.pipeline.stage).toBe('plan');
 		expect(after.doc.sections).toHaveLength(2);
+	});
+});
+
+describe('the staged change', () => {
+	const addPiano = { op: 'add_part', args: { name: 'Piano', instrument: 'Piano' } } as const;
+
+	it('is the newest revision while it is unaccepted', () => {
+		const row = createScore(user, 'Staged');
+		expect(stagedRevision(row.id, user)).toBeNull();
+
+		const commit = commitOps(row.id, user, [addPiano], {
+			source: 'control',
+			label: 'Reharmonise',
+			accepted: false
+		});
+		expect(stagedRevision(row.id, user)).toMatchObject({
+			revisionId: commit.revisionId,
+			label: 'Reharmonise'
+		});
+
+		acceptRevision(row.id, user, commit.revisionId);
+		expect(stagedRevision(row.id, user)).toBeNull();
+	});
+
+	it('is gone once rejected, though the rejected row stays unaccepted', () => {
+		const row = createScore(user, 'Rejected');
+		commitOps(row.id, user, [addPiano], { source: 'user', label: 'Piano' });
+		const staged = commitOps(row.id, user, [{ op: 'set_tempo', args: { bpm: 70 } }], {
+			source: 'control',
+			label: 'Slower',
+			accepted: false
+		});
+
+		rejectRevision(row.id, user, staged.revisionId);
+
+		const rejected = db.select().from(revisions).where(eq(revisions.id, staged.revisionId)).get();
+		expect(rejected?.accepted).toBe(false);
+		expect(stagedRevision(row.id, user)).toBeNull();
 	});
 });

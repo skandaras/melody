@@ -7,6 +7,7 @@ import {
 	listAdminControls,
 	updateControl
 } from '$lib/server/controls/admin';
+import type { Stage } from '$lib/pipeline/types';
 import type { ControlKind } from '$lib/server/db/schema';
 import type { RequestHandler } from './$types';
 
@@ -36,6 +37,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		systemPrompt?: string;
 		paramsSchema?: Record<string, unknown>;
 		defaultParams?: Record<string, unknown>;
+		stages?: Stage[];
 	}>(request);
 
 	try {
@@ -48,7 +50,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			promptTemplate: body.promptTemplate ?? '',
 			systemPrompt: body.systemPrompt ?? null,
 			paramsSchema: body.paramsSchema ?? null,
-			defaultParams: body.defaultParams ?? null
+			defaultParams: body.defaultParams ?? null,
+			stages: body.stages ?? null
 		});
 		return json({ control });
 	} catch (e) {

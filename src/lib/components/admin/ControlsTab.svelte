@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { RACK_STAGES, STAGE_LABELS, type Stage } from '$lib/pipeline/types';
 	/**
 	 * Admin → Controls.
 	 *
@@ -24,6 +25,7 @@
 		builtin: boolean;
 		enabled: boolean;
 		sortOrder: number;
+		stages: Stage[] | null;
 	}
 
 	interface Props {
@@ -35,7 +37,7 @@
 	// svelte-ignore state_referenced_locally
 	let controls = $state<Control[]>(initial);
 	let openId = $state<string | null>(null);
-	let draft = $state<{ name: string; category: string; icon: string; description: string; promptTemplate: string; systemPrompt: string; defaultParamsText: string } | null>(null);
+	let draft = $state<{ name: string; category: string; icon: string; description: string; promptTemplate: string; systemPrompt: string; defaultParamsText: string; stages: Stage[] } | null>(null);
 	let error = $state('');
 	let notice = $state('');
 	let busy = $state(false);
@@ -69,7 +71,8 @@
 				description: c.description,
 				promptTemplate: c.promptTemplate ?? '',
 				systemPrompt: c.systemPrompt ?? '',
-				defaultParamsText: c.defaultParams ? JSON.stringify(c.defaultParams, null, 2) : ''
+				defaultParamsText: c.defaultParams ? JSON.stringify(c.defaultParams, null, 2) : '',
+				stages: [...(c.stages ?? [])]
 			};
 		}
 	}
@@ -122,7 +125,8 @@
 				description: draft.description,
 				promptTemplate: c.kind === 'code' ? undefined : draft.promptTemplate,
 				systemPrompt: c.kind === 'code' ? undefined : draft.systemPrompt,
-				defaultParams: defaults ?? {}
+				defaultParams: defaults ?? {},
+				stages: draft.stages
 			}
 		});
 		if (r) openId = null;
@@ -166,6 +170,14 @@
 		}
 	}
 
+	function toggleStage(stage: Stage, on: boolean) {
+		if (!draft) return;
+		draft.stages = on ? [...draft.stages, stage] : draft.stages.filter((s) => s !== stage);
+	}
+
+	const stagesLabel = (stages: Stage[] | null) =>
+		stages?.length ? stages.map((s) => STAGE_LABELS[s]).join(', ') : 'every stage';
+
 	const jsonErr = (text: string) => {
 		try {
 			if (text.trim()) JSON.parse(text);
@@ -178,7 +190,8 @@
 
 <p class="hint">
 	Free code controls are instant and cost nothing; prompt and agent controls call the model. New
-	prompt or agent controls appear in every user's rack as soon as they are created.
+	prompt or agent controls appear in every user's rack as soon as they are created, at every stage
+	until you narrow them.
 </p>
 
 {#if error}<p class="msg err">{error}</p>{/if}
@@ -227,6 +240,7 @@
 						<span class="icon" aria-hidden="true">{c.icon ?? '·'}</span>
 						<span class="name">{c.name}</span>
 						<span class="kind kind-{c.kind}">{c.kind}</span>
+						<span class="where">{stagesLabel(c.stages)}</span>
 						{#if !c.enabled}<span class="off">off</span>{/if}
 						{#if c.builtin}<span class="tag">built-in</span>{/if}
 					</button>
@@ -259,6 +273,20 @@
 								<textarea rows="3" bind:value={draft.defaultParamsText}></textarea>
 								{#if jsonErr(draft.defaultParamsText)}<span class="err">{jsonErr(draft.defaultParamsText)}</span>{/if}
 							</label>
+
+							<fieldset class="stages">
+								<legend>Offered at — none ticked means every stage</legend>
+								{#each RACK_STAGES as stage (stage)}
+									<label class="check">
+										<input
+											type="checkbox"
+											checked={draft.stages.includes(stage)}
+											onchange={(e) => toggleStage(stage, e.currentTarget.checked)}
+										/>
+										<span>{STAGE_LABELS[stage]}</span>
+									</label>
+								{/each}
+							</fieldset>
 
 							<div class="actions">
 								<label class="check">
@@ -350,6 +378,24 @@
 	}
 	.kind-code {
 		color: var(--diff-add);
+	}
+	.where {
+		font-size: var(--text-xs);
+		color: var(--fg-dim);
+	}
+	.stages {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: var(--space-2);
+		margin: 0 0 var(--space-2);
+	}
+	.stages legend {
+		font-size: var(--text-xs);
+		color: var(--fg-dim);
+		padding: 0 var(--space-1);
 	}
 	.off,
 	.tag {

@@ -3,7 +3,7 @@ import { readJson, requireUser } from '$lib/server/api';
 import { BudgetExceededError } from '$lib/server/budget';
 import { NoModelError, NoProviderError } from '$lib/server/ai/provider';
 import { NothingToRealizeError, startRealize } from '$lib/server/ai/realize';
-import { loadScore, setPipeline } from '$lib/server/scores';
+import { assertNothingStaged, loadScore, setPipeline } from '$lib/server/scores';
 import { melodyPartOf, sectionStates } from '$lib/pipeline/realize';
 import { nextStage } from '$lib/pipeline/types';
 import type { RequestHandler } from './$types';
@@ -44,6 +44,7 @@ function realize(
 	sectionIds?: string[],
 	instruction?: string
 ) {
+	assertNothingStaged(scoreId, userId);
 	try {
 		return json(startRealize({ scoreId, userId, sectionIds, instruction, origin }));
 	} catch (err) {
@@ -84,6 +85,8 @@ function approve(scoreId: string, userId: string) {
 	const row = loadScore(scoreId, userId);
 	const plan = row.pipeline.plan;
 	if (!plan) error(400, 'This score has no plan.');
+	// Moving on would leave a staged change behind with nobody looking at it.
+	assertNothingStaged(scoreId, userId);
 
 	// Notes, not events: a part holding only rests is not a melody, and counting
 	// events would let it through while the page still showed every section as

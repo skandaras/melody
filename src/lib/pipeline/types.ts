@@ -35,6 +35,14 @@ export const STAGE_LABELS: Record<Stage, string> = {
 	finish: 'Finish'
 };
 
+/**
+ * The stages that show a control rack.
+ *
+ * Brief and Plan are forms and Finish is an export, so a control assigned to
+ * one of them would have nowhere to appear. The admin panel offers these.
+ */
+export const RACK_STAGES: readonly Stage[] = ['melody', 'arrangement', 'refine'];
+
 /** What a hummed or uploaded seed is *for*. */
 export const SEED_ROLES = ['theme', 'hook', 'motif'] as const;
 export type SeedRole = (typeof SEED_ROLES)[number];

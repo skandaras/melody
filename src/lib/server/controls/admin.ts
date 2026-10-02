@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { controls, type ControlKind } from '../db/schema.js';
 import { OP_MAP } from '$lib/score/ops/index.js';
+import { isStage, type Stage } from '$lib/pipeline/types.js';
 
 /**
  * Admin CRUD for the control rack.
@@ -30,6 +31,8 @@ export interface AdminControlView {
 	builtin: boolean;
 	enabled: boolean;
 	sortOrder: number;
+	/** Null or empty means every stage. */
+	stages: Stage[] | null;
 }
 
 function view(c: typeof controls.$inferSelect): AdminControlView {
@@ -47,7 +50,8 @@ function view(c: typeof controls.$inferSelect): AdminControlView {
 		defaultParams: c.defaultParams,
 		builtin: c.builtin,
 		enabled: c.enabled,
-		sortOrder: c.sortOrder
+		sortOrder: c.sortOrder,
+		stages: c.stages ?? null
 	};
 }
 
@@ -86,6 +90,22 @@ function validatePromptControl(patch: {
 	}
 }
 
+/**
+ * A stage list as stored.
+ *
+ * Always an array, never null: saving from the panel is a deliberate choice,
+ * and `[]` is how "everywhere" is recorded so the seed's backfill — which only
+ * fills nulls — leaves it alone.
+ */
+function validateStages(stages: unknown): Stage[] {
+	if (stages == null) return [];
+	if (!Array.isArray(stages)) throw new ControlValidationError('Stages must be a list.');
+	for (const s of stages) {
+		if (!isStage(s)) throw new ControlValidationError(`Unknown stage: ${String(s)}`);
+	}
+	return [...new Set(stages as Stage[])];
+}
+
 export function updateControl(id: string, patch: Partial<AdminControlView>): AdminControlView {
 	const row = db.select().from(controls).where(eq(controls.id, id)).get();
 	if (!row) throw new ControlValidationError('Control not found.');
@@ -106,6 +126,7 @@ export function updateControl(id: string, patch: Partial<AdminControlView>): Adm
 	if (patch.icon !== undefined) next.icon = patch.icon?.trim() || null;
 	if (patch.description !== undefined) next.description = patch.description.trim();
 	if (patch.enabled !== undefined) next.enabled = Boolean(patch.enabled);
+	if (patch.stages !== undefined) next.stages = validateStages(patch.stages);
 	if (patch.sortOrder !== undefined) {
 		next.sortOrder = Math.max(0, Math.min(9999, Math.round(Number(patch.sortOrder) || 0)));
 	}
@@ -161,6 +182,7 @@ export interface CreateControlInput {
 	systemPrompt?: string | null;
 	paramsSchema?: Record<string, unknown> | null;
 	defaultParams?: Record<string, unknown> | null;
+	stages?: Stage[] | null;
 }
 
 export function createControl(input: CreateControlInput): AdminControlView {
@@ -178,6 +200,7 @@ export function createControl(input: CreateControlInput): AdminControlView {
 	if (name.length > 60) throw new ControlValidationError('Name is too long.');
 
 	validatePromptControl(input);
+	const stages = validateStages(input.stages);
 
 	// The rack groups by category; new categories just join the list sorted by
 	// CONTROL_CATEGORIES's known ones first, then alphabetically.
@@ -203,7 +226,8 @@ export function createControl(input: CreateControlInput): AdminControlView {
 			defaultParams: input.defaultParams ?? null,
 			builtin: false,
 			enabled: true,
-			sortOrder: (last?.sortOrder ?? 0) + 1
+			sortOrder: (last?.sortOrder ?? 0) + 1,
+			stages
 		})
 		.run();
 

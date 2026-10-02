@@ -462,6 +462,51 @@ export function acceptRevision(scoreId: string, userId: string, revisionId: stri
 	db.update(revisions).set({ accepted: true }).where(eq(revisions.id, revisionId)).run();
 }
 
+/**
+ * The staged change waiting on review right now, if there is one.
+ *
+ * The newest revision, and only if it is unaccepted. `accepted = false` alone
+ * cannot answer this: rejecting a revision marks it unaccepted too, and an old
+ * staged turn that later writes landed on top of is no longer a change anyone
+ * can review in isolation. A reject always writes its own accepted revision
+ * after the target, so "newest and unaccepted" is exactly "staged, unresolved".
+ */
+export function stagedRevision(scoreId: string, userId: string) {
+	loadScore(scoreId, userId);
+	const latest = db
+		.select({
+			id: revisions.id,
+			label: revisions.label,
+			diff: revisions.diff,
+			accepted: revisions.accepted
+		})
+		.from(revisions)
+		.where(eq(revisions.scoreId, scoreId))
+		.orderBy(desc(revisions.seq))
+		.limit(1)
+		.get();
+	if (!latest || latest.accepted) return null;
+	return {
+		revisionId: latest.id,
+		label: latest.label,
+		added: latest.diff?.added.length ?? 0,
+		changed: latest.diff?.changed.length ?? 0,
+		removed: latest.diff?.removed.length ?? 0
+	};
+}
+
+/**
+ * Refuse to start a write while a staged change waits on review.
+ *
+ * Rejecting restores the revision before the staged one, so anything committed
+ * on top of it in the meantime would be thrown away with it.
+ */
+export function assertNothingStaged(scoreId: string, userId: string): void {
+	if (stagedRevision(scoreId, userId)) {
+		error(409, 'Accept or reject the change waiting for review first.');
+	}
+}
+
 /** Staged-but-unreviewed AI revisions, newest first. */
 export function pendingRevisions(scoreId: string, userId: string) {
 	loadScore(scoreId, userId);

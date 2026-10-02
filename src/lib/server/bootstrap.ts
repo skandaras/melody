@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db, dataDir } from './db/index.js';
 import {
 	CORE_TASKS,
@@ -59,10 +59,32 @@ export function seedTaskConfigs(): void {
 	}
 }
 
+/**
+ * Built-ins that have been withdrawn, by name.
+ *
+ * Seeding is insert-if-absent, so deleting an entry from BUILTIN_CONTROLS only
+ * stops new installs getting it — every existing install keeps the row and
+ * keeps offering it. Disabled rather than deleted, like any built-in.
+ *
+ * `Compose from seed` is the staged pipeline itself. Keeping it in the rack
+ * beside Brief, Plan and Melody would offer two contradictory routes to the
+ * same result.
+ */
+const RETIRED_CONTROLS = ['Compose from seed'];
+
 export function seedControls(): void {
 	const existing = new Set(db.select({ name: controls.name }).from(controls).all().map((r) => r.name));
 	for (const [i, c] of BUILTIN_CONTROLS.entries()) {
-		if (existing.has(c.name)) continue;
+		if (existing.has(c.name)) {
+			// Rows seeded before controls had stages. Only a null is filled in:
+			// `[]` is an admin's deliberate "everywhere", and anything else is an
+			// admin's own assignment — both outrank the built-in default.
+			db.update(controls)
+				.set({ stages: c.stages })
+				.where(and(eq(controls.name, c.name), eq(controls.builtin, true), isNull(controls.stages)))
+				.run();
+			continue;
+		}
 		db.insert(controls)
 			.values({
 				id: randomUUID(),
@@ -78,8 +100,20 @@ export function seedControls(): void {
 				defaultParams: c.defaultParams ?? null,
 				builtin: true,
 				enabled: true,
-				sortOrder: i
+				sortOrder: i,
+				stages: c.stages
 			})
+			.run();
+	}
+
+	// Once, keyed off the same null the backfill uses: an admin who turns a
+	// retired control back on must not have it switched off again at the next
+	// restart. `[]` marks it handled, and means everywhere if it is re-enabled —
+	// which is where it was before.
+	for (const name of RETIRED_CONTROLS) {
+		db.update(controls)
+			.set({ enabled: false, stages: [] })
+			.where(and(eq(controls.name, name), eq(controls.builtin, true), isNull(controls.stages)))
 			.run();
 	}
 }
