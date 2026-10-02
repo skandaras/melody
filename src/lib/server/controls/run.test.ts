@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { interpolate } from './run.js';
+import { eq } from 'drizzle-orm';
+import { planToOps, withCreatedPartIds } from '$lib/pipeline/plan.js';
+import { emptyPlan, type Plan } from '$lib/pipeline/types.js';
+import { interpolate, runControl } from './run.js';
 import { findSkill, skillBlock } from '../ai/skills.js';
-import { runMigrations } from '../db/index.js';
+import { seedControls } from '../bootstrap.js';
+import { db, runMigrations } from '../db/index.js';
+import { controls } from '../db/schema.js';
+import { commitOps, createScore, loadScore, setPipeline } from '../scores.js';
 
 /**
  * The pure halves of the control runtime. Dispatch itself needs a database and
@@ -68,5 +74,83 @@ describe('findSkill', () => {
 	it('returns null for empty input', () => {
 		expect(findSkill('')).toBeNull();
 		expect(findSkill('   ')).toBeNull();
+	});
+});
+
+describe('the melody lock while arranging', () => {
+	const user = 'lock-user';
+
+	function arranging() {
+		runMigrations();
+		seedControls();
+		const row = createScore(user, 'Locked');
+		const plan: Plan = {
+			...emptyPlan(),
+			ensemble: [
+				{ name: 'Flute', instrument: 'Flute' },
+				{ name: 'Strings', instrument: 'String Ensemble 1' }
+			],
+			sections: [{ name: 'A', bars: 2, harmony: 'I', role: 'statement' }]
+		};
+		const before = loadScore(row.id, user).doc;
+		const commit = commitOps(row.id, user, planToOps(before, plan), { source: 'user', label: 'Plan' });
+		const approved = withCreatedPartIds(plan, before, commit.created);
+		const [flute, strings] = approved.ensemble.map((e) => e.partId!);
+		commitOps(
+			row.id,
+			user,
+			[{ op: 'insert_notes', args: { partId: flute, notes: [{ tick: 0, dur: 480, pitches: ['C5'] }] } }],
+			{ source: 'ai', label: 'Melody' }
+		);
+		setPipeline(row.id, user, { stage: 'arrangement', plan: { ...approved, approved: true } });
+		return { scoreId: row.id, flute, strings };
+	}
+
+	function thrown(fn: () => unknown): { status?: number; body?: { message?: string } } | null {
+		try {
+			fn();
+			return null;
+		} catch (e) {
+			return e as { status?: number; body?: { message?: string } };
+		}
+	}
+
+	const transpose = () => db.select().from(controls).where(eq(controls.name, 'Transpose')).get()!;
+
+	it('refuses a free control that would move the approved tune', () => {
+		const { scoreId } = arranging();
+		const refused = thrown(() =>
+			runControl({
+				controlId: transpose().id,
+				scoreId,
+				userId: user,
+				params: { semitones: 2 },
+				selection: {}
+			})
+		);
+		// SvelteKit's error() carries the text on body, not on message.
+		expect(refused?.status).toBe(400);
+		expect(refused?.body?.message).toMatch(/approved in the previous stage/);
+		expect(loadScore(scoreId, user).doc.parts[0].voices[0].events[0]).toMatchObject({
+			pitches: [expect.objectContaining({ midi: 72 })]
+		});
+	});
+
+	it('allows one aimed at the accompaniment', () => {
+		const { scoreId, strings } = arranging();
+		commitOps(
+			scoreId,
+			user,
+			[{ op: 'insert_notes', args: { partId: strings, notes: [{ tick: 0, dur: 480, pitches: ['C4'] }] } }],
+			{ source: 'ai', label: 'Strings' }
+		);
+		const result = runControl({
+			controlId: transpose().id,
+			scoreId,
+			userId: user,
+			params: { semitones: 2 },
+			selection: { partIds: [strings] }
+		});
+		expect(result.kind).toBe('applied');
 	});
 });

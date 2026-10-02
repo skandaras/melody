@@ -15,6 +15,8 @@
 		mode?: 'select' | 'add';
 		/** Snapping for placement and for dragging. */
 		entry?: { grid: number; triplets: boolean };
+		/** Parts drawn dimmed, as settled — the approved melody while arranging. */
+		quietParts?: string[];
 		/** Where playback has reached, in ticks. Null when nothing is playing. */
 		playheadTick?: number | null;
 		/** An edit is in flight. A second drag would race it. */
@@ -33,6 +35,7 @@
 		mode = 'select',
 		entry = { grid: 16, triplets: false },
 		playheadTick = null,
+		quietParts = [],
 		busy = false,
 		onselect,
 		onplace,
@@ -116,6 +119,7 @@
 						changed: new Set(diff.changed)
 					}
 				: undefined,
+			quietParts: quietParts.length ? new Set(quietParts) : undefined,
 			colors: colors()
 		});
 		hits = result.hits;
@@ -130,6 +134,7 @@
 		void score;
 		void selected;
 		void diff;
+		void quietParts;
 		void scale;
 		void width;
 		draw();

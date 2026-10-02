@@ -208,6 +208,64 @@ export function buildRealizeContext(args: {
 	return lines.join('\n');
 }
 
+/**
+ * The user-turn content for arranging one part.
+ *
+ * A part is written across the whole piece in one loop rather than section by
+ * section: what makes an arrangement is how a line behaves over the form —
+ * resting in the verse, arriving in the chorus — and a model shown one section
+ * at a time cannot plan that. The sections are listed with their ticks so it
+ * can still aim each passage at the right bars.
+ *
+ * The melody is rendered rather than left to `read_score`, because everything
+ * this part does is in relation to it. The parts already written are only
+ * named: the model can read the ones it needs, and rendering every part on
+ * every call would grow the prompt with each part the run finishes.
+ */
+export function buildArrangeContext(args: {
+	score: Score;
+	planSummary: string;
+	sections: { name: string; harmony: string; role: string; startTick: number; endTick: number }[];
+	part: { id: string; name: string; instrument: string };
+	melodyPartId: string | null;
+	/** Parts that already have notes, other than the melody and this one. */
+	written: { id: string; name: string; notes: number }[];
+	instruction?: string;
+	opts?: ContextOptions;
+}): string {
+	const { score, part } = args;
+	const lines = [describeScore(score), '', 'The plan:', args.planSummary, '', 'The form, in ticks:'];
+	for (const s of args.sections) {
+		const harmony = s.harmony ? `, ${s.harmony}` : '';
+		const role = s.role ? ` — ${s.role}` : '';
+		lines.push(`  ${s.name}: ${s.startTick} to ${s.endTick}${harmony}${role}`);
+	}
+
+	if (args.melodyPartId) {
+		lines.push(
+			'',
+			`The melody, in part ${args.melodyPartId}. It was approved in the previous stage and cannot be changed:`,
+			renderNotes(score, { partIds: [args.melodyPartId] }, args.opts)
+		);
+	}
+
+	if (args.written.length) {
+		lines.push('', 'Already arranged — read them with read_score before writing, so this part fits around them:');
+		for (const w of args.written) lines.push(`  ${w.id} ${w.name}: ${w.notes} notes`);
+	}
+
+	lines.push(
+		'',
+		`Write part ${part.id} (${part.name}, ${part.instrument}) across the whole piece.`,
+		'Decide what it is for — counter-line, harmony, bass or rhythm — from what is already there, and let it rest where that serves the music.',
+		`Write into part ${part.id} only. The other parts, the tempo, key, metre and sections are all settled.`,
+		`When it is written, call check_playability for part ${part.id} and fix anything it lists.`
+	);
+
+	if (args.instruction) lines.push('', `The person asked for: ${args.instruction}`);
+	return lines.join('\n');
+}
+
 /** The plan as a few lines of prose, for a realization's prompt. */
 export function planSummary(plan: {
 	title: string;

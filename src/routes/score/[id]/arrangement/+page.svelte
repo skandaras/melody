@@ -2,23 +2,25 @@
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
+	import Mixer from '$lib/components/Mixer.svelte';
 	import PendingReview, { type Pending } from '$lib/components/PendingReview.svelte';
 	import RunProgress from '$lib/components/RunProgress.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
 	import { PlayerStore } from '$lib/audio/player.svelte';
 	import { Run } from '$lib/runs/run.svelte';
-	import { sectionStates } from '$lib/pipeline/realize';
+	import { accompanimentParts } from '$lib/pipeline/arrange';
 	import { secondsToTick } from '$lib/score/measures';
+	import type { Op } from '$lib/score/apply';
 	import type { Score } from '$lib/score/types';
 	import type { PageServerData } from './$types';
 
 	/**
-	 * Stage three: the tune.
+	 * Stage four: who has the tune, who supports, who rests.
 	 *
-	 * The stage people spend the most time in, so it is shaped for iteration
-	 * rather than for a single perfect run — write it, hear it, say what is
-	 * wrong with one section, write that one again.
+	 * Parts are the unit, the way sections are in the melody stage. Each run
+	 * writes one part at a time and may touch nothing else, so "Clear" on a part
+	 * is a clean per-part reject and "Rewrite" a clean redo.
 	 */
 
 	let { data }: { data: PageServerData } = $props();
@@ -26,19 +28,17 @@
 	const run = new Run();
 	$effect(() => () => run.destroy());
 
-	// Initial value only. Every run returns a fresh document, and re-deriving
-	// from the load would fight that.
+	// Initial values only: every run and edit returns a fresh document.
 	// svelte-ignore state_referenced_locally
 	let doc = $state<Score>(untrack(() => data.score.doc));
-	let melodyPartId = $state<string | null>(untrack(() => data.melodyPartId));
-	let selectedSection = $state<string | null>(null);
+	// svelte-ignore state_referenced_locally
+	let pending = $state<Pending | null>(untrack(() => data.pending));
+	let selectedPart = $state<string | null>(null);
 	let selected = $state<Set<string>>(new Set());
 	let instruction = $state('');
 	let error = $state('');
 	let busy = $state(false);
 	let scale = $state(1);
-	// svelte-ignore state_referenced_locally
-	let pending = $state<Pending | null>(untrack(() => data.pending));
 
 	// svelte-ignore state_referenced_locally
 	const player = new PlayerStore(() => data.soundfontUrl, {
@@ -48,37 +48,22 @@
 	$effect(() => () => player.destroy());
 
 	$effect(() => {
-		// Any change makes the loaded sequence stale.
 		void doc;
 		player.invalidate();
 	});
 
 	const plan = $derived(data.pipeline.plan!);
-	const sections = $derived(sectionStates(doc, plan, melodyPartId));
-	const written = $derived(sections.filter((s) => s.state === 'written').length);
-	const allWritten = $derived(sections.length > 0 && written === sections.length);
-	const parts = $derived(doc.parts.map((p) => ({ id: p.id, name: p.name })));
-	// A staged change blocks every other write: rejecting it would discard
-	// anything that landed on top. The server refuses too; this just says so
-	// before anyone presses a button.
-	const canRun = $derived(data.canGenerate && !run.running && !busy && !pending);
+	const parts = $derived(accompanimentParts(doc, plan, data.pipeline.brief));
+	const written = $derived(parts.filter((p) => p.state === 'written').length);
+	const allWritten = $derived(parts.length > 0 && written === parts.length);
+	const melody = $derived(doc.parts.find((p) => p.id === data.melodyPartId) ?? null);
+	const current = $derived(parts.find((p) => p.partId === selectedPart) ?? null);
 	const selection = $derived(selected.size ? { noteIds: [...selected] } : {});
 
-	/**
-	 * The selected section, if it still exists.
-	 *
-	 * Editing the plan in another tab can delete the section this page is
-	 * pointing at, and a stale id would otherwise render as an empty name in
-	 * three separate labels.
-	 */
-	const current = $derived(sections.find((s) => s.sectionId === selectedSection) ?? null);
+	// A staged change blocks every other write; see PendingReview.
+	const locked = $derived(run.running || busy || pending !== null);
+	const canRun = $derived(data.canGenerate && !locked);
 
-	/**
-	 * Where playback has reached, in ticks.
-	 *
-	 * Null unless something is sounding — a line parked at the start of a
-	 * stopped score reads as a stuck playhead rather than an idle one.
-	 */
 	const playheadTick = $derived.by(() => {
 		const t = player.transport;
 		if (!t.playing) return null;
@@ -86,7 +71,7 @@
 	});
 
 	async function post(body: Record<string, unknown>) {
-		const res = await fetch(`/api/scores/${data.score.id}/melody`, {
+		const res = await fetch(`/api/scores/${data.score.id}/arrangement`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(body)
@@ -95,23 +80,17 @@
 		return res.json();
 	}
 
-	/**
-	 * Start a run.
-	 *
-	 * No sections means "everything still empty", which is what makes resuming
-	 * an interrupted realization the same button as starting one.
-	 */
-	async function realize(sectionIds?: string[], direction?: string) {
+	/** No parts means every part still empty, so resuming is the same button. */
+	async function arrange(partIds?: string[], direction?: string) {
 		error = '';
 		try {
-			const { jobId } = await post({ action: 'realize', sectionIds, instruction: direction });
+			const { jobId } = await post({ action: 'arrange', partIds, instruction: direction });
 			run.listen(
 				jobId,
 				(result) => {
 					doc = result.doc as Score;
 				},
-				// The document after each section, so the notation fills in as it
-				// is written rather than all at once at the end.
+				// The document after each part, so the score fills in as it is written.
 				(type, payload) => {
 					if (type === 'progress' && payload?.doc) doc = payload.doc as Score;
 				}
@@ -122,13 +101,32 @@
 		}
 	}
 
-	async function chooseMelodyPart(partId: string) {
-		melodyPartId = partId;
+	async function clearPart(partId: string) {
+		busy = true;
+		error = '';
 		try {
-			await post({ action: 'melodyPart', partId });
+			const r = await post({ action: 'clear', partId });
+			doc = r.doc as Score;
+			selected = new Set();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			busy = false;
 		}
+	}
+
+	/** The mixer's level and mute, through the one write path. */
+	async function commitMix(ops: Op[], label: string) {
+		const res = await fetch(`/api/scores/${data.score.id}/ops`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ops, label })
+		});
+		if (!res.ok) {
+			error = (await res.text()) || res.statusText;
+			return;
+		}
+		doc = (await res.json()).doc as Score;
 	}
 
 	async function approve() {
@@ -136,8 +134,7 @@
 		error = '';
 		try {
 			await post({ action: 'approve' });
-			// Through the bare score route, so the stage table decides where that
-			// lands rather than this page.
+			// Through the bare score route, so the stage table decides where it lands.
 			await goto(`/score/${data.score.id}`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -148,59 +145,57 @@
 	const sendFeedback = () => {
 		const text = instruction.trim();
 		if (!text || !current) return;
-		realize([current.sectionId], text);
+		arrange([current.partId], text);
 	};
 </script>
 
-<svelte:head><title>Melody · melody</title></svelte:head>
+<svelte:head><title>Arrangement · melody</title></svelte:head>
 
-<div class="melody">
+<div class="arrangement">
 	<aside class="rail">
 		<header>
-			<p class="step">Melody</p>
-			<h1>{plan.title || 'The tune'}</h1>
-			<p class="lead">{written} of {sections.length} sections written.</p>
+			<p class="step">Arrangement</p>
+			<h1>{plan.title || 'The arrangement'}</h1>
+			<p class="lead">
+				{#if parts.length}
+					{written} of {parts.length} parts written.
+				{:else}
+					The plan names no instruments besides the melody, so there is nothing to arrange.
+				{/if}
+			</p>
 		</header>
 
-		<section>
-			<label class="field">
-				<span class="label">The tune goes in</span>
-				<select
-					value={melodyPartId ?? ''}
-					onchange={(e) => chooseMelodyPart(e.currentTarget.value)}
-					disabled={run.running}
-				>
-					{#each parts as part (part.id)}
-						<option value={part.id}>{part.name}</option>
-					{/each}
-				</select>
-			</label>
-		</section>
-
-		<section class="sections">
-			{#each sections as section (section.sectionId)}
+		<section class="parts">
+			{#if melody}
+				<div class="part melody" title="Approved in the previous stage. Edit it in Bench.">
+					<span class="mark">♪</span>
+					<span class="name">{melody.name}</span>
+					<span class="note">melody · locked</span>
+				</div>
+			{/if}
+			{#each parts as part (part.partId)}
 				<button
-					class="section"
-					class:current={selectedSection === section.sectionId}
-					class:written={section.state === 'written'}
-					onclick={() =>
-						(selectedSection = selectedSection === section.sectionId ? null : section.sectionId)}
+					class="part"
+					class:current={selectedPart === part.partId}
+					class:written={part.state === 'written'}
+					onclick={() => (selectedPart = selectedPart === part.partId ? null : part.partId)}
 				>
-					<span class="mark">{section.state === 'written' ? '✓' : '·'}</span>
-					<span class="name">{section.name}</span>
-					<span class="bars">{section.bars} bars</span>
+					<span class="mark">{part.state === 'written' ? '✓' : '·'}</span>
+					<span class="name">{part.name}</span>
+					<span class="note">{part.instrument}</span>
 				</button>
 			{/each}
 		</section>
 
-		{#if data.canGenerate}
+		{#if data.canGenerate && parts.length}
 			<section class="actions">
-				<button class="btn primary" onclick={() => realize()} disabled={!canRun || allWritten}>
-					{written === 0 ? 'Write the melody' : 'Write what is left'}
+				<button class="btn primary" onclick={() => arrange()} disabled={!canRun || allWritten}>
+					{written === 0 ? 'Write the arrangement' : 'Write what is left'}
 				</button>
 				{#if current}
-					<button class="btn" onclick={() => realize([current.sectionId])} disabled={!canRun}>
-						Rewrite {current.name}
+					<button class="btn" onclick={() => arrange([current.partId])} disabled={!canRun}>
+						{current.state === 'written' ? 'Rewrite' : 'Write'}
+						{current.name}
 					</button>
 				{/if}
 			</section>
@@ -208,12 +203,12 @@
 			<section class="feedback">
 				<label class="field">
 					<span class="label">
-						{current ? `Change ${current.name}` : 'Pick a section to give feedback on'}
+						{current ? `Change ${current.name}` : 'Pick a part to give feedback on'}
 					</span>
 					<textarea
 						bind:value={instruction}
 						rows="3"
-						placeholder="lift the chorus; make the verse less busy"
+						placeholder="sustain under the verse; walk in the chorus"
 						disabled={!current || !canRun}
 					></textarea>
 				</label>
@@ -225,17 +220,24 @@
 					Rewrite with this
 				</button>
 			</section>
-		{:else}
+		{:else if !data.canGenerate}
 			<p class="hint">
-				No model is configured, so the melody cannot be written for you. You can still write notes
-				by hand in Bench.
+				No model is configured, so parts cannot be written for you. You can still write them by
+				hand in Bench.
 			</p>
+		{/if}
+
+		{#if current && current.state === 'written'}
+			<button class="btn quiet" onclick={() => clearPart(current.partId)} disabled={locked}>
+				Clear {current.name}
+			</button>
 		{/if}
 
 		{#if pending}
 			<PendingReview
 				scoreId={data.score.id}
 				{pending}
+				acceptUrl="/api/scores/{data.score.id}/arrangement"
 				onresolved={(next) => {
 					doc = next;
 					pending = null;
@@ -244,14 +246,32 @@
 			/>
 		{/if}
 
+		{#if run.state.outcome !== 'idle'}
+			<RunProgress
+				state={run.state}
+				oncancel={run.running ? () => run.cancel() : undefined}
+				idleLabel="Arranging…"
+				slowNote="Still arranging. Each part is its own call, so finished ones are already saved."
+			/>
+		{/if}
+
+		{#if error}
+			<p class="banner">{error}</p>
+		{/if}
+
+		<details class="fold">
+			<summary>Listen</summary>
+			<Mixer score={doc} {player} busy={locked} oncommit={commitMix} />
+		</details>
+
 		{#if data.controls.length}
-			<details class="rack">
+			<details class="fold">
 				<summary>Controls</summary>
 				<ControlRack
 					scoreId={data.score.id}
 					controls={data.controls}
 					{selection}
-					busy={run.running || busy || pending !== null}
+					busy={locked}
 					onapplied={(r) => (doc = r.doc)}
 					onstaged={(r) => {
 						doc = r.doc;
@@ -267,26 +287,13 @@
 			</details>
 		{/if}
 
-		{#if run.state.outcome !== 'idle'}
-			<RunProgress
-				state={run.state}
-				oncancel={run.running ? () => run.cancel() : undefined}
-				idleLabel="Writing…"
-				slowNote="Still writing. Each section is its own call, so finished ones are already saved."
-			/>
-		{/if}
-
-		{#if error}
-			<p class="banner">{error}</p>
-		{/if}
-
 		<footer>
-			<a class="skip" href="/score/{data.score.id}/plan">Back to the plan</a>
+			<a class="skip" href="/score/{data.score.id}/melody">Back to the melody</a>
 			<a class="skip" href="/score/{data.score.id}/bench">Open in Bench</a>
 			<button
 				class="btn primary"
 				onclick={approve}
-				disabled={busy || run.running || written === 0 || pending !== null}
+				disabled={locked || (parts.length > 0 && written === 0)}
 			>
 				{busy ? 'Continuing…' : 'Approve and continue'}
 			</button>
@@ -306,6 +313,7 @@
 				{selected}
 				{scale}
 				{playheadTick}
+				quietParts={data.melodyPartId ? [data.melodyPartId] : []}
 				busy={run.running}
 				onselect={(ids, additive) => {
 					selected = additive ? new Set([...selected, ...ids]) : new Set(ids);
@@ -316,7 +324,7 @@
 </div>
 
 <style>
-	.melody {
+	.arrangement {
 		display: flex;
 		gap: var(--space-4);
 		height: 100%;
@@ -378,7 +386,6 @@
 		font-size: var(--text-xs);
 		color: var(--fg-dim);
 	}
-	select,
 	textarea {
 		background: var(--bg-pane);
 		color: var(--fg);
@@ -389,7 +396,6 @@
 		min-width: 0;
 		resize: vertical;
 	}
-	select:focus,
 	textarea:focus {
 		outline: none;
 		border-color: var(--accent);
@@ -398,10 +404,10 @@
 		opacity: 0.5;
 	}
 
-	.sections {
+	.parts {
 		gap: var(--space-1);
 	}
-	.section {
+	.part {
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-2);
@@ -409,30 +415,38 @@
 		border: 1px solid transparent;
 		border-radius: var(--radius);
 		padding: var(--space-2);
-		cursor: pointer;
 		font: inherit;
 		color: var(--fg-dim);
 		text-align: left;
 	}
-	.section.written {
+	button.part {
+		cursor: pointer;
+	}
+	.part.written,
+	.part.melody {
 		color: var(--fg);
 	}
-	.section.current {
+	.part.current {
 		border-color: var(--accent);
 		background: var(--bg-pane);
 	}
-	.section .mark {
+	.part .mark {
 		color: var(--accent);
 		width: 1rem;
 	}
-	.section .name {
+	.part .name {
 		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.section .bars {
+	.part .note {
 		font-size: var(--text-xs);
+		color: var(--fg-dim);
 	}
 
-	.rack summary {
+	.fold summary {
 		cursor: pointer;
 		font-size: var(--text-xs);
 		color: var(--fg-dim);
@@ -476,13 +490,18 @@
 		color: var(--bg);
 		font-weight: 600;
 	}
+	.btn.quiet {
+		background: none;
+		border: 1px solid var(--border);
+		color: var(--fg-dim);
+	}
 	.btn:disabled {
 		opacity: 0.55;
 		cursor: default;
 	}
 
 	@media (max-width: 60rem) {
-		.melody {
+		.arrangement {
 			flex-direction: column;
 			overflow-y: auto;
 		}
