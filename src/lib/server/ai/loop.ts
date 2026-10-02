@@ -1,4 +1,6 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
+import type { OpGuard } from '$lib/pipeline/arrange.js';
+import { playabilityReport } from '$lib/score/ranges.js';
 import type { Score, Selection } from '$lib/score/types.js';
 import { analysisReport, renderNotes } from './context.js';
 import { INSTRUMENT_NAMES, READ_TOOL_NAMES, agentTools, type FunctionDef } from './tools.js';
@@ -52,6 +54,16 @@ export interface LoopOptions {
 	 * belongs to, and the progress bar is back to being a spinner.
 	 */
 	phase?: { id: string; label: string };
+	/**
+	 * What an operation is allowed to touch, decided on its result.
+	 *
+	 * Checked after the trial application, so the guard sees exactly what the op
+	 * would do. A refusal is answered like any other rejected op — the model is
+	 * told why and can try again — and the op never reaches the revision. The
+	 * loop has no opinion about what is allowed; a stage that has one says so
+	 * here. See `$lib/pipeline/arrange.ts`.
+	 */
+	guard?: OpGuard;
 }
 
 export type LoopEvent =
@@ -179,7 +191,7 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		});
 
 		for (const call of completion.toolCalls) {
-			const outcome = handleCall(call, working, ops, opts.maxOps);
+			const outcome = handleCall(call, working, ops, opts.maxOps, opts.guard);
 			if (!outcome.ok) rejectedOps++;
 			if (outcome.score) working = outcome.score;
 			if (outcome.hitLimit) hitOpLimit = true;
@@ -242,7 +254,13 @@ interface CallOutcome {
  * the useful response to "you sent malformed JSON" is to let it try again, not
  * to abandon a turn the user is waiting on.
  */
-function handleCall(call: ToolCall, score: Score, ops: Op[], maxOps: number): CallOutcome {
+function handleCall(
+	call: ToolCall,
+	score: Score,
+	ops: Op[],
+	maxOps: number,
+	guard?: OpGuard
+): CallOutcome {
 	let args: Record<string, unknown>;
 	try {
 		args = call.arguments.trim() ? JSON.parse(call.arguments) : {};
@@ -307,6 +325,18 @@ function handleCall(call: ToolCall, score: Score, ops: Op[], maxOps: number): Ca
 		return { ok: false, content: `Error: ${detail}`, detail, warning: detail };
 	}
 
+	// After the "matched nothing" test, so an op that did nothing is reported
+	// as that rather than as a breach of a rule it never got near.
+	const refusal = guard?.(score, trial.score, trial.diff);
+	if (refusal) {
+		return {
+			ok: false,
+			content: `Error: ${refusal}`,
+			detail: refusal,
+			warning: `${call.name} was refused: ${refusal}`
+		};
+	}
+
 	ops.push(op);
 	const note = trial.log.join('; ');
 	return { ok: true, content: note, detail: note, score: trial.score };
@@ -321,6 +351,8 @@ function readTool(name: string, args: Record<string, unknown>, score: Score): Ca
 			return { ok: true, content: analysisReport(score, sel) };
 		case 'list_instruments':
 			return { ok: true, content: INSTRUMENT_NAMES.join('\n') };
+		case 'check_playability':
+			return { ok: true, content: playabilityReport(score, sel.partIds) };
 		default:
 			return { ok: false, content: `Error: unknown tool "${name}".` };
 	}

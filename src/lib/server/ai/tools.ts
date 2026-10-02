@@ -244,6 +244,26 @@ export const READ_TOOLS: FunctionDef[] = [
 			strict: true,
 			parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }
 		}
+	},
+	{
+		type: 'function',
+		function: {
+			name: 'check_playability',
+			description:
+				'Report notes outside each instrument\'s practical range. Call it after writing a part, and fix what it lists before finishing.',
+			strict: true,
+			parameters: {
+				type: 'object',
+				properties: {
+					partId: {
+						type: ['string', 'null'],
+						description: 'Check one part. Omit or null for every pitched part.'
+					}
+				},
+				required: ['partId'],
+				additionalProperties: false
+			}
+		}
 	}
 ];
 

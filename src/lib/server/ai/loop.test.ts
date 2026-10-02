@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { OpGuard } from '$lib/pipeline/arrange.js';
 import { runAgentLoop, type LoopEvent } from './loop.js';
 import { MockAdapter, type ScriptedTurn } from './mock.js';
 import { applyOps } from '$lib/score/apply.js';
@@ -212,6 +213,86 @@ describe('runAgentLoop — read-only tools', () => {
 		]);
 		await promise;
 		expect(adapter.requests[1].messages.find((m) => m.role === 'tool')?.content).toContain('Violin');
+	});
+
+	it('answers check_playability with each part\'s range', async () => {
+		const { promise, adapter } = run([
+			{ toolCalls: [{ name: 'check_playability', arguments: '{"partId":null}' }] },
+			{ content: 'ok', finishReason: 'stop' }
+		]);
+		const r = await promise;
+		expect(r.ops).toEqual([]);
+		expect(adapter.requests[1].messages.find((m) => m.role === 'tool')?.content).toMatch(
+			/practical range 21–108: all 3 notes in range/
+		);
+	});
+});
+
+describe('runAgentLoop — guard', () => {
+	// Refuses anything that changes the first note, as a melody lock would.
+	const lockFirst: OpGuard = (before, _after, diff) => {
+		const first = before.parts[0].voices[0].events[0].id;
+		return diff.changed.includes(first) || diff.removed.includes(first)
+			? 'That note is locked.'
+			: null;
+	};
+
+	it('refuses an op the guard rejects, tells the model why, and keeps going', async () => {
+		const { promise, adapter, events } = run(
+			[
+				{ toolCalls: [{ name: 'transpose', arguments: '{"semitones":2}' }] },
+				{ content: 'Understood, leaving it.', finishReason: 'stop' }
+			],
+			{ guard: lockFirst }
+		);
+		const r = await promise;
+
+		expect(r.ops).toEqual([]);
+		expect(r.rejectedOps).toBe(1);
+		expect(r.stopReason).toBe('no_effect');
+		expect(adapter.requests[1].messages.find((m) => m.role === 'tool')?.content).toBe(
+			'Error: That note is locked.'
+		);
+		expect(events.some((e) => e.type === 'tool' && !e.ok && e.detail === 'That note is locked.')).toBe(
+			true
+		);
+	});
+
+	it('lets through what the guard allows', async () => {
+		const third = fixture().parts[0].voices[0].events[2].id;
+		const { promise } = run(
+			[
+				{
+					toolCalls: [
+						{
+							name: 'transpose',
+							arguments: JSON.stringify({ semitones: 2, selection: { noteIds: [third] } })
+						}
+					]
+				},
+				{ content: 'Done.', finishReason: 'stop' }
+			],
+			{ guard: lockFirst }
+		);
+		const r = await promise;
+		expect(r.ops).toHaveLength(1);
+		expect(r.rejectedOps).toBe(0);
+	});
+
+	it('does not advance the working score past a refused op', async () => {
+		const { promise, adapter } = run(
+			[
+				{ toolCalls: [{ name: 'transpose', arguments: '{"semitones":12}' }] },
+				{ toolCalls: [{ name: 'read_score', arguments: '{}' }] },
+				{ content: 'ok', finishReason: 'stop' }
+			],
+			{ guard: lockFirst }
+		);
+		await promise;
+		const read = adapter.requests[2].messages.filter((m) => m.role === 'tool').at(-1)?.content;
+		// C4 is 60; an octave up would read 72.
+		expect(read).toMatch(/ 60 /);
+		expect(read).not.toMatch(/ 72 /);
 	});
 });
 
