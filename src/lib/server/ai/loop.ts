@@ -1,5 +1,6 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
 import type { OpGuard } from '$lib/pipeline/arrange.js';
+import { collectIds } from '$lib/score/ids.js';
 import { playabilityReport } from '$lib/score/ranges.js';
 import type { Score, Selection } from '$lib/score/types.js';
 import { analysisReport, renderNotes } from './context.js';
@@ -64,6 +65,12 @@ export interface LoopOptions {
 	 * here. See `$lib/pipeline/arrange.ts`.
 	 */
 	guard?: OpGuard;
+	/**
+	 * Ids already used by the commit this loop's ops will join, though `score`
+	 * no longer holds them — notes an earlier step of the same run deleted.
+	 * See `applyOps`. Pass the previous loop's `idsSeen` when chaining loops.
+	 */
+	reservedIds?: Iterable<string>;
 }
 
 export type LoopEvent =
@@ -105,6 +112,12 @@ export interface LoopResult {
 	 * appearing to do nothing at all.
 	 */
 	rejectedOps: number;
+	/**
+	 * Every id the run has seen, including ones it minted and then deleted.
+	 * A caller chaining several loops into one commit passes this on as the
+	 * next loop's `reservedIds`.
+	 */
+	idsSeen: string[];
 }
 
 export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
@@ -128,6 +141,10 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 	// own edits rather than a stale document — and validating one op against
 	// it is both cheaper and more precise than re-applying the whole batch.
 	let working = opts.score;
+	// Each op is validated on its own, but committed as one batch. The batch
+	// never reuses an id it has seen, so neither may the loop — otherwise an op
+	// aimed at a note this turn created would hit here and miss at commit.
+	const seen = new Set<string>([...collectIds(opts.score), ...(opts.reservedIds ?? [])]);
 
 	for (let i = 0; i < opts.maxIterations; i++) {
 		if (opts.signal?.aborted) return result('aborted');
@@ -191,9 +208,12 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		});
 
 		for (const call of completion.toolCalls) {
-			const outcome = handleCall(call, working, ops, opts.maxOps, opts.guard);
+			const outcome = handleCall(call, working, ops, opts.maxOps, seen, opts.guard);
 			if (!outcome.ok) rejectedOps++;
-			if (outcome.score) working = outcome.score;
+			if (outcome.score) {
+				working = outcome.score;
+				for (const id of collectIds(working)) seen.add(id);
+			}
 			if (outcome.hitLimit) hitOpLimit = true;
 			if (outcome.warning) warnings.push(outcome.warning);
 			opts.onEvent?.({
@@ -232,7 +252,16 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		if (stopReason === 'max_iterations' && opts.maxIterations > 1) {
 			warnings.push(`Stopped after ${opts.maxIterations} model round-trips.`);
 		}
-		return { ops, summary, iterations, usage, stopReason, warnings, rejectedOps };
+		return {
+			ops,
+			summary,
+			iterations,
+			usage,
+			stopReason,
+			warnings,
+			rejectedOps,
+			idsSeen: [...seen]
+		};
 	}
 }
 
@@ -259,6 +288,7 @@ function handleCall(
 	score: Score,
 	ops: Op[],
 	maxOps: number,
+	seen: ReadonlySet<string>,
 	guard?: OpGuard
 ): CallOutcome {
 	let args: Record<string, unknown>;
@@ -292,7 +322,7 @@ function handleCall(
 	// while the model can still correct itself — is much better than at commit
 	// time with the user looking at the diff.
 	const op = { op: call.name, args } as Op;
-	const trial = applyOps(score, [op]);
+	const trial = applyOps(score, [op], { reservedIds: seen });
 
 	if (trial.errors.length) {
 		const reason = trial.errors.map((e) => e.reason).join('; ');

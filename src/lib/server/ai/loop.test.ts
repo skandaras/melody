@@ -228,6 +228,70 @@ describe('runAgentLoop — read-only tools', () => {
 	});
 });
 
+describe('runAgentLoop — ids', () => {
+	it('mints the ids its own commit will, even after deleting the newest note', async () => {
+		// The fixture's notes are n1..n3. Deleting n3 and inserting used to mint
+		// n3 again inside the loop, where each op is applied on its own, but n4
+		// at commit, where the batch remembers n3 was taken. An op the model
+		// then aimed at its new note by id passed here and missed there.
+		const score = fixture();
+		const partId = score.parts[0].id;
+		const { promise } = run([
+			{ toolCalls: [{ name: 'delete_notes', arguments: '{"noteIds":["n3"]}' }] },
+			{
+				toolCalls: [
+					{
+						name: 'insert_notes',
+						arguments: JSON.stringify({ partId, notes: [{ tick: 960, dur: 480, pitches: ['A4'] }] })
+					}
+				]
+			},
+			{
+				toolCalls: [
+					{
+						name: 'set_articulation',
+						arguments: '{"selection":{"noteIds":["n4"]},"articulations":["staccato"]}'
+					}
+				]
+			},
+			{ content: 'Done.', finishReason: 'stop' }
+		]);
+		const r = await promise;
+
+		expect(r.rejectedOps).toBe(0);
+		const commit = applyOps(score, r.ops);
+		expect(commit.errors).toEqual([]);
+		const last = commit.score.parts[0].voices[0].events.at(-1)!;
+		expect(last).toMatchObject({ id: 'n4', artic: ['staccato'] });
+	});
+
+	it('honours ids reserved by an earlier step of the same commit', async () => {
+		// A run that cleared a part before the loop began: n3 is gone from the
+		// score the loop sees, but the commit will start from a score holding it.
+		const score = fixture();
+		const cleared = applyOps(score, [{ op: 'delete_notes', args: { noteIds: ['n3'] } }]).score;
+		const partId = score.parts[0].id;
+		const { promise } = run(
+			[
+				{
+					toolCalls: [
+						{
+							name: 'insert_notes',
+							arguments: JSON.stringify({ partId, notes: [{ tick: 960, dur: 480, pitches: ['A4'] }] })
+						}
+					]
+				},
+				{ content: 'Done.', finishReason: 'stop' }
+			],
+			{ score: cleared, reservedIds: ['n3'] }
+		);
+		const r = await promise;
+		const added = applyOps(cleared, r.ops, { reservedIds: ['n3'] }).diff.added;
+		expect(added).toEqual(['n4']);
+		expect(r.idsSeen).toContain('n4');
+	});
+});
+
 describe('runAgentLoop — guard', () => {
 	// Refuses anything that changes the first note, as a melody lock would.
 	const lockFirst: OpGuard = (before, _after, diff) => {

@@ -97,6 +97,10 @@ export async function realizeChunks(opts: RealizeRunOptions): Promise<RealizeRun
 	// later chunk would be written against the original score and "connect to
 	// what came before" would mean nothing.
 	let working = opts.score;
+	// Every id the run has seen, so each chunk mints what the single commit
+	// will. See applyOps: without it, a rewrite that replaced the newest note
+	// would have the next chunk mint that id again while the commit does not.
+	let reserved: string[] = [];
 
 	for (const [i, chunk] of opts.chunks.entries()) {
 		if (opts.signal?.aborted) return result('aborted');
@@ -152,6 +156,7 @@ export async function realizeChunks(opts: RealizeRunOptions): Promise<RealizeRun
 				reasoning: opts.reasoning,
 				signal: opts.signal,
 				phase: { id: chunkId(chunk), label: chunk.label },
+				reservedIds: reserved,
 				onEvent: (event) => opts.onEvent?.(event.type, event)
 			});
 		} catch (err) {
@@ -170,7 +175,8 @@ export async function realizeChunks(opts: RealizeRunOptions): Promise<RealizeRun
 
 		if (loop.ops.length) {
 			ops.push(...loop.ops);
-			working = applyOps(working, loop.ops).score;
+			working = applyOps(working, loop.ops, { reservedIds: reserved }).score;
+			reserved = loop.idsSeen;
 			if (!done.includes(chunk.sectionId)) done.push(chunk.sectionId);
 		} else {
 			// Worth naming rather than passing over. `rejectedOps` separates "it
@@ -370,11 +376,11 @@ function labelFor(opts: RealizeOptions, chunks: Chunk[], done: string[]): string
 	return names.length ? `Wrote ${names.join(', ')}` : 'Wrote the melody';
 }
 
-function message(err: unknown): string {
+export function message(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
-function addUsage(total: Usage, add: Usage): void {
+export function addUsage(total: Usage, add: Usage): void {
 	total.promptTokens += add.promptTokens;
 	total.completionTokens += add.completionTokens;
 	total.cacheReadTokens += add.cacheReadTokens;
