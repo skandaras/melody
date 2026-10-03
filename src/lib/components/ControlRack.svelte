@@ -111,8 +111,16 @@
 	// A finished run stops blocking the rack, but its last message stays on
 	// screen until the next control is fired — that message is the only thing
 	// telling the user what happened.
+	//
+	// `running` is read first and unconditionally. It is the only reactive
+	// value here besides runningId: `jobId` is a plain field. Read after a
+	// short-circuit, it was never read on the first pass — jobId is still null
+	// while the request is in flight — so the effect depended on runningId
+	// alone, never re-ran when the job ended, and left every control disabled
+	// after the first model-backed one until the page was reloaded.
 	$effect(() => {
-		if (runningId && activeRun.jobId && !activeRun.running) runningId = null;
+		const running = activeRun.running;
+		if (runningId && activeRun.jobId && !running) runningId = null;
 	});
 
 	$effect(() => () => activeRun.destroy());
