@@ -191,6 +191,30 @@ export function isPlanUsable(plan: Plan | null | undefined): boolean {
 	return plan.sections.length > 0 && plan.sections.every((s) => s.bars > 0);
 }
 
+/**
+ * The paid prose explanation of a piece, kept so it is not paid for twice.
+ *
+ * Kept beside the score rather than snapshotted with a revision: it is
+ * commentary on a version, not part of one. It carries a fingerprint of the
+ * music it was written about, so when the music has moved on — by an edit or
+ * by restoring an older version — it is shown as out of date rather than
+ * thrown away. Renaming the piece is not a change to the music.
+ */
+export interface StoredAnalysis {
+	text: string;
+	/** Of the document the model was shown, minus its title. */
+	fingerprint: string;
+	createdAt: number;
+}
+
+/** A stored analysis as a page shows it. */
+export interface AnalysisView {
+	text: string;
+	createdAt: number;
+	/** The music has changed since it was written. */
+	stale: boolean;
+}
+
 /** Where a score is in the pipeline. Snapshotted with each revision. */
 export interface PipelineState {
 	stage: Stage;
@@ -236,7 +260,8 @@ const STAGE_ROUTES: Partial<Record<Stage, string>> = {
 	plan: 'plan',
 	melody: 'melody',
 	arrangement: 'arrangement',
-	refine: 'refine'
+	refine: 'refine',
+	finish: 'finish'
 };
 
 /** The path segment for a stage's own page, or null if it has none yet. */

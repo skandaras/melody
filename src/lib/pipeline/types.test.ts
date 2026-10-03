@@ -116,11 +116,14 @@ describe('stageRoute', () => {
 		expect(stageRoute('refine')).toBe('refine');
 	});
 
-	it('falls through for stages that have no page yet', () => {
-		// Finish lands in the editor until it is built. Falling through is
-		// correct; a dead link is not.
-		for (const stage of ['finish'] as const) {
-			expect(stageRoute(stage)).toBeNull();
+	it('routes the finish to its own page', () => {
+		expect(stageRoute('finish')).toBe('finish');
+	});
+
+	it('gives every stage but the brief a page', () => {
+		for (const stage of STAGES) {
+			if (stage === 'brief') expect(stageRoute(stage)).toBeNull();
+			else expect(stageRoute(stage)).toBe(stage);
 		}
 	});
 });

@@ -9,9 +9,11 @@ import {
 	createScore,
 	listRevisions,
 	acceptRevision,
+	analysisOf,
 	loadScore,
 	rejectRevision,
 	restoreRevision,
+	setAnalysis,
 	setPipeline,
 	stagedRevision
 } from './scores.js';
@@ -249,5 +251,62 @@ describe('the staged change', () => {
 		const rejected = db.select().from(revisions).where(eq(revisions.id, staged.revisionId)).get();
 		expect(rejected?.accepted).toBe(false);
 		expect(stagedRevision(row.id, user)).toBeNull();
+	});
+});
+
+describe('the stored explanation', () => {
+	it('is fresh until the music changes, then out of date', () => {
+		const row = createScore(user, 'Explained');
+		expect(analysisOf(loadScore(row.id, user))).toBeNull();
+
+		setAnalysis(row.id, user, 'It sits in C major throughout.', loadScore(row.id, user).doc);
+		expect(analysisOf(loadScore(row.id, user))).toMatchObject({
+			text: 'It sits in C major throughout.',
+			stale: false
+		});
+
+		commitOps(row.id, user, [{ op: 'set_tempo', args: { bpm: 80 } }], {
+			source: 'user',
+			label: 'Slower'
+		});
+		expect(analysisOf(loadScore(row.id, user))?.stale).toBe(true);
+	});
+
+	it('is not made out of date by a new name', () => {
+		const row = createScore(user, 'Renamed');
+		setAnalysis(row.id, user, 'Short and bright.', loadScore(row.id, user).doc);
+		commitOps(row.id, user, [{ op: 'set_title', args: { title: 'Bright Morning' } }], {
+			source: 'user',
+			label: 'Named it'
+		});
+		expect(analysisOf(loadScore(row.id, user))?.stale).toBe(false);
+	});
+
+	it('describes the music it was shown, not what arrived meanwhile', () => {
+		const row = createScore(user, 'Raced');
+		const shown = loadScore(row.id, user).doc;
+		commitOps(row.id, user, [{ op: 'set_tempo', args: { bpm: 140 } }], {
+			source: 'user',
+			label: 'Edited while it was writing'
+		});
+		setAnalysis(row.id, user, 'Written about the version before.', shown);
+		expect(analysisOf(loadScore(row.id, user))?.stale).toBe(true);
+	});
+
+	it('is not restored with an older version', () => {
+		const row = createScore(user, 'Not rewound');
+		commitOps(row.id, user, [{ op: 'set_tempo', args: { bpm: 90 } }], {
+			source: 'user',
+			label: 'Slower'
+		});
+		const first = listRevisions(row.id, user).at(-1)!;
+		setAnalysis(row.id, user, 'Written about the newest version.', loadScore(row.id, user).doc);
+
+		restoreRevision(row.id, user, first.id);
+		// Still there, and marked as describing something newer than this.
+		expect(analysisOf(loadScore(row.id, user))).toMatchObject({
+			text: 'Written about the newest version.',
+			stale: true
+		});
 	});
 });

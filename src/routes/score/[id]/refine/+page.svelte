@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import AiPanel from '$lib/components/AiPanel.svelte';
 	import ControlRack from '$lib/components/ControlRack.svelte';
+	import Explanation from '$lib/components/Explanation.svelte';
 	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
 	import Mixer from '$lib/components/Mixer.svelte';
 	import PendingReview, { type Pending } from '$lib/components/PendingReview.svelte';
@@ -51,6 +52,10 @@
 	});
 
 	const title = $derived(data.pipeline.plan?.title || data.score.title);
+	// svelte-ignore state_referenced_locally
+	const loaded = untrack(() => data.score.doc);
+	/** Changed since the page loaded, which makes a stored explanation stale. */
+	const edited = $derived(doc !== loaded);
 	const selection = $derived(selected.size ? { noteIds: [...selected] } : {});
 	// A staged change blocks every other write; see PendingReview.
 	const locked = $derived(busy || pending !== null);
@@ -142,6 +147,13 @@
 </script>
 
 <svelte:head><title>Refinement · melody</title></svelte:head>
+<svelte:window
+	onkeydown={(e) => {
+		// Clicking empty paper keeps a selection, so this is the way back to
+		// "the whole piece" — which the rack's scope line then says.
+		if (e.key === 'Escape' && selected.size) selected = new Set();
+	}}
+/>
 
 <div class="refine">
 	<aside class="rail">
@@ -154,6 +166,17 @@
 		<section>
 			<ScoreFacts score={doc} />
 		</section>
+
+		<details class="fold" open={Boolean(data.analysis)}>
+			<summary>What it does</summary>
+			<Explanation
+				scoreId={data.score.id}
+				analysis={data.analysis}
+				canGenerate={data.canGenerate}
+				{edited}
+				busy={locked}
+			/>
+		</details>
 
 		{#if pending}
 			<PendingReview

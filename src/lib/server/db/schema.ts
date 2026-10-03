@@ -97,7 +97,14 @@ export {
 	type TaskOptions
 } from '$lib/ai/config';
 import type { TaskOptions } from '$lib/ai/config';
-import { FIRST_STAGE, type Brief, type PipelineState, type Plan, type Stage } from '$lib/pipeline/types';
+import {
+	FIRST_STAGE,
+	type Brief,
+	type PipelineState,
+	type Plan,
+	type Stage,
+	type StoredAnalysis
+} from '$lib/pipeline/types';
 
 export const taskConfigs = sqliteTable('task_configs', {
 	task: text('task').primaryKey(),
@@ -143,6 +150,11 @@ export const scores = sqliteTable(
 		brief: text('brief', { mode: 'json' }).$type<Brief>(),
 		/** The approved blueprint. Null until the plan stage produces one. */
 		plan: text('plan', { mode: 'json' }).$type<Plan>(),
+		/**
+		 * The last paid explanation of the piece. Not part of the pipeline
+		 * state, and not snapshotted with revisions — see StoredAnalysis.
+		 */
+		analysis: text('analysis', { mode: 'json' }).$type<StoredAnalysis>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
