@@ -35,6 +35,31 @@ export const STAGE_LABELS: Record<Stage, string> = {
 	finish: 'Finish'
 };
 
+/**
+ * The stages that show a control rack.
+ *
+ * Brief and Plan are forms and Finish is an export, so a control assigned to
+ * one of them would have nowhere to appear. The admin panel offers these.
+ */
+export const RACK_STAGES: readonly Stage[] = ['melody', 'arrangement', 'refine'];
+
+/**
+ * How thick the fog is at each stage: dense while the piece is an idea, gone by
+ * the time it is finished. See docs/epics/visual-language.md — the fog clearing
+ * as the composition clears is how a page says where it is in the flow.
+ */
+export const FOG_BY_STAGE: Record<Stage, number> = {
+	brief: 1,
+	plan: 0.85,
+	melody: 0.65,
+	arrangement: 0.45,
+	refine: 0.2,
+	finish: 0
+};
+
+/** Pages outside the pipeline — the score list, settings, admin. */
+export const FOG_ELSEWHERE = 0.7;
+
 /** What a hummed or uploaded seed is *for*. */
 export const SEED_ROLES = ['theme', 'hook', 'motif'] as const;
 export type SeedRole = (typeof SEED_ROLES)[number];
@@ -183,6 +208,30 @@ export function isPlanUsable(plan: Plan | null | undefined): boolean {
 	return plan.sections.length > 0 && plan.sections.every((s) => s.bars > 0);
 }
 
+/**
+ * The paid prose explanation of a piece, kept so it is not paid for twice.
+ *
+ * Kept beside the score rather than snapshotted with a revision: it is
+ * commentary on a version, not part of one. It carries a fingerprint of the
+ * music it was written about, so when the music has moved on — by an edit or
+ * by restoring an older version — it is shown as out of date rather than
+ * thrown away. Renaming the piece is not a change to the music.
+ */
+export interface StoredAnalysis {
+	text: string;
+	/** Of the document the model was shown, minus its title. */
+	fingerprint: string;
+	createdAt: number;
+}
+
+/** A stored analysis as a page shows it. */
+export interface AnalysisView {
+	text: string;
+	createdAt: number;
+	/** The music has changed since it was written. */
+	stale: boolean;
+}
+
 /** Where a score is in the pipeline. Snapshotted with each revision. */
 export interface PipelineState {
 	stage: Stage;
@@ -226,12 +275,34 @@ export function isStage(value: unknown): value is Stage {
  */
 const STAGE_ROUTES: Partial<Record<Stage, string>> = {
 	plan: 'plan',
-	melody: 'melody'
+	melody: 'melody',
+	arrangement: 'arrangement',
+	refine: 'refine',
+	finish: 'finish'
 };
 
 /** The path segment for a stage's own page, or null if it has none yet. */
 export function stageRoute(stage: Stage): string | null {
 	return STAGE_ROUTES[stage] ?? null;
+}
+
+/**
+ * Where opening a score lands.
+ *
+ * Every stage with a page goes to it. The brief, which deliberately has no
+ * entry in the table above, needs one more question answered: has anyone ever
+ * taken this score anywhere? A score written before the pipeline existed sits
+ * at the brief by default, with no brief and with music in it — sending that
+ * to a form asking what it should be would strand it, so it opens where music
+ * is worked on. Anything else at the brief stage is a brief in progress.
+ *
+ * `hasNotes` rather than the whole document, so this stays a question about
+ * the pipeline and testable without one.
+ */
+export function entryRoute(pipeline: PipelineState, hasNotes: boolean): string {
+	const own = stageRoute(pipeline.stage);
+	if (own) return own;
+	return pipeline.brief === null && hasNotes ? 'refine' : 'brief';
 }
 
 /** The stage after this one, or null at the end of the pipeline. */

@@ -1,5 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
+import type { Stage } from '$lib/pipeline/types.js';
 import { controls, type ControlKind } from '../db/schema.js';
 
 /**
@@ -21,15 +22,25 @@ export interface ControlSummary {
 	defaultParams: Record<string, unknown> | null;
 	/** True when this control costs nothing and works with no API key. */
 	free: boolean;
+	/** Where it is offered. Null or empty means every stage. */
+	stages: Stage[] | null;
 }
 
-export function listControls(): ControlSummary[] {
+/**
+ * The enabled controls, optionally only those a stage offers.
+ *
+ * No stage means all of them, which is what the free-form editor shows.
+ * Filtered here rather than in SQL because `stages` is a JSON column, and the
+ * whole table is a few dozen rows.
+ */
+export function listControls(stage?: Stage): ControlSummary[] {
 	return db
 		.select()
 		.from(controls)
 		.where(eq(controls.enabled, true))
 		.orderBy(asc(controls.category), asc(controls.sortOrder))
 		.all()
+		.filter((c) => !stage || offeredAt(c.stages, stage))
 		.map((c) => ({
 			id: c.id,
 			name: c.name,
@@ -39,8 +50,14 @@ export function listControls(): ControlSummary[] {
 			description: c.description,
 			paramsSchema: c.paramsSchema,
 			defaultParams: c.defaultParams,
-			free: c.kind === 'code'
+			free: c.kind === 'code',
+			stages: c.stages ?? null
 		}));
+}
+
+/** Null and empty both mean everywhere; see the column. */
+export function offeredAt(stages: readonly string[] | null | undefined, stage: Stage): boolean {
+	return !stages?.length || stages.includes(stage);
 }
 
 export function getControl(id: string) {

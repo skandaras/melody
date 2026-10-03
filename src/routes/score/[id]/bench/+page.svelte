@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import ClipPanel from '$lib/components/ClipPanel.svelte';
+	import Mixer from '$lib/components/Mixer.svelte';
 	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -8,6 +10,7 @@
 	import { secondsToTick } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
+	import type { Score } from '$lib/score/types';
 	import type { PageServerData } from './$types';
 
 	/**
@@ -23,7 +26,7 @@
 	 * through the same single write path and lands in the same revision history.
 	 * It deliberately never touches `session.pending`: that slot belongs to
 	 * staged AI changes, and a manual edit competing for it would leave one of
-	 * the two unreviewable.
+	 * the two unreviewable. Clips live here too — inserting one is manual.
 	 */
 
 	let { data }: { data: PageServerData } = $props();
@@ -49,6 +52,9 @@
 	});
 
 	let scale = $state(1);
+	/** One side panel at a time: the narrow canvas is the thing being edited. */
+	let panel = $state<'parts' | 'clips' | null>(null);
+	const toggle = (p: 'parts' | 'clips') => (panel = panel === p ? null : p);
 	let mode = $state<'select' | 'add'>('select');
 	let entry = $state<NoteEntry>({
 		duration: 480,
@@ -90,6 +96,50 @@
 	async function dragNotes(ops: Op[]) {
 		if (!ops.length || session.busy) return;
 		await session.runOps(ops, ops.length > 1 ? 'Moved notes' : 'Moved a note');
+	}
+
+	/**
+	 * Put a saved clip back in, as new parts.
+	 *
+	 * A clip carries rests and ties, which insert_notes cannot express, so it
+	 * goes through the merge path — which stages. It is accepted straight away:
+	 * inserting a clip is a deliberate manual edit like any other here, and
+	 * leaving it staged would put a change in the review slot that no page is
+	 * showing, blocking every stage behind it.
+	 */
+	async function insertClip(fragment: Score, label: string) {
+		const post = async (url: string, body: unknown) => {
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			if (!res.ok) throw new Error((await res.text()) || res.statusText);
+			return res.json();
+		};
+		const merged = await post(`/api/scores/${data.score.id}/transcribe`, {
+			fragment,
+			label: `Inserted ${label}`,
+			cleanup: false
+		});
+		await post(`/api/scores/${data.score.id}/revisions`, {
+			action: 'accept',
+			revisionId: merged.revisionId
+		});
+		session.adopt(merged.doc as Score, null);
+	}
+
+	/**
+	 * Remove a part and everything in it.
+	 *
+	 * Here because it is a manual edit, and the only place left to make it: the
+	 * stages never delete a part on their own, so that a dropped plan row cannot
+	 * take a hummed recording with it.
+	 */
+	async function removePart(partId: string) {
+		const part = score.parts.find((p) => p.id === partId);
+		if (!part || !confirm(`Remove "${part.name}" and its notes?`)) return;
+		await session.runOps([{ op: 'remove_part', args: { partId } }], `Removed ${part.name}`);
 	}
 
 	async function deleteSelected() {
@@ -162,6 +212,9 @@
 
 		<div class="spacer"></div>
 
+		<button class="btn" class:on={panel === 'parts'} onclick={() => toggle('parts')}>Parts</button>
+		<button class="btn" class:on={panel === 'clips'} onclick={() => toggle('clips')}>Clips</button>
+
 		<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out">
 			−
 		</button>
@@ -175,6 +228,7 @@
 		<p class="banner">{error}</p>
 	{/if}
 
+	<div class="body">
 	<div class="scroll">
 		<ScoreCanvas
 			{score}
@@ -188,6 +242,30 @@
 			onplace={placeNote}
 			ondrag={dragNotes}
 		/>
+	</div>
+
+	{#if panel === 'parts'}
+		<aside class="side">
+			<Mixer
+				{score}
+				{player}
+				{busy}
+				oncommit={(ops, label) => session.runOps(ops, label)}
+				onremove={removePart}
+			/>
+		</aside>
+	{:else if panel === 'clips'}
+		<aside class="side">
+			<ClipPanel
+				scoreId={data.score.id}
+				{score}
+				selection={session.selection}
+				selectionCount={session.selectionCount}
+				{busy}
+				oninsert={insertClip}
+			/>
+		</aside>
+	{/if}
 	</div>
 
 	<Transport
@@ -257,9 +335,27 @@
 		font-size: var(--text-sm);
 	}
 
+	.body {
+		flex: 1;
+		display: flex;
+		min-height: 0;
+	}
 	.scroll {
 		flex: 1;
 		overflow: auto;
 		padding: var(--space-4);
+		min-width: 0;
+	}
+	.side {
+		width: 16rem;
+		flex: 0 0 16rem;
+		overflow-y: auto;
+		padding: var(--space-4);
+		border-left: 1px solid var(--border);
+		background: var(--bg-pane);
+	}
+	.btn.on {
+		background: var(--accent);
+		color: var(--bg);
 	}
 </style>

@@ -40,14 +40,19 @@
 	const hasSeed = $derived(Boolean(brief.seedPartId));
 
 	/**
-	 * Where the escape hatch actually goes.
+	 * Where the escape hatch goes.
 	 *
-	 * Always the bare score route, which routes by stage — so for a score that
-	 * has already moved on (reached from the plan's "Edit the brief") it lands
-	 * on the plan, not the editor. Only the label has to know that.
+	 * A score that has already moved on (reached from the plan's "Edit the
+	 * brief") goes back through the bare score route, which lands on whatever
+	 * stage it is at. One still at the brief has nowhere further on to go — the
+	 * free-form editor that "skip" used to lead to is gone — so it goes back to
+	 * the list rather than round in a circle to this page.
 	 */
-	const onwardLabel = $derived(
-		data.pipeline.stage === 'brief' ? 'Skip to the editor' : 'Back without saving'
+	const atBrief = $derived(data.pipeline.stage === 'brief');
+	const onward = $derived(
+		atBrief
+			? { href: '/', label: 'Back to scores' }
+			: { href: `/score/${data.score.id}`, label: 'Back without saving' }
 	);
 	const canContinue = $derived(isBriefUsable(brief) && !saving);
 
@@ -65,6 +70,21 @@
 		// theme" at all.
 		const part = session.lastCreated.find((c) => c.kind === 'part');
 		brief = { ...brief, seedPartId: part?.id, seedRole: brief.seedRole ?? 'theme' };
+
+		// Saved now, not only on Save. Opening a score that sits at the brief
+		// with music in it and no brief means "made before the pipeline", which
+		// opens at Refinement — so a hum left unsaved would send this score
+		// there on the next visit instead of back here.
+		try {
+			const res = await fetch(`/api/scores/${data.score.id}/brief`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ brief })
+			});
+			if (!res.ok) throw new Error((await res.text()) || res.statusText);
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		}
 	}
 
 	async function save(advance: boolean) {
@@ -194,7 +214,7 @@
 	{/if}
 
 	<footer>
-		<a class="skip" href="/score/{data.score.id}">{onwardLabel}</a>
+		<a class="skip" href={onward.href}>{onward.label}</a>
 		<div class="spacer"></div>
 		<button class="btn" onclick={() => save(false)} disabled={saving}>Save draft</button>
 		<button class="btn primary" onclick={() => save(true)} disabled={!canContinue}>

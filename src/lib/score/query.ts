@@ -18,6 +18,11 @@ export function isNote(e: ScoreEvent): e is Note {
 	return e.kind === 'note';
 }
 
+/** Any note anywhere — rests alone do not count as music. */
+export function hasNotes(score: Score): boolean {
+	return score.parts.some((p) => p.voices.some((v) => v.events.some(isNote)));
+}
+
 /**
  * Notes matching a selection.
  *

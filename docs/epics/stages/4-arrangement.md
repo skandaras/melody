@@ -46,24 +46,37 @@ The accompaniment parts. Approving moves to Refinement.
 ## Gotchas
 
 - **The ensemble was already decided in the Plan.** This stage realizes it; it
-  should not silently invent new instruments. If `Orchestrate as…` wants a part
-  the plan did not name, that is a plan change and should say so.
+  should not silently invent new instruments. *Enforced:* each part's run is
+  held to that part by `onlyPart` (`src/lib/pipeline/arrange.ts`), which
+  refuses `add_part` and tells the model to say it wants another instrument
+  instead.
 - **`add_part` wraps channels past 16** (`ops/parts.ts:38-43`), skipping 9 for
-  drums. With the plan capped at 15 non-drum parts this is safe, but an
-  `Add section` or `Orchestrate as…` that adds parts here can still exceed it.
-- **Instrument ranges.** The prompt asks the model to check each part stays in
-  range, and `list_instruments` (`tools.ts:191-248`) is available as a read
-  tool. Whether ranges are actually enforced anywhere is worth checking before
-  relying on the prompt alone.
-- **Per-part accept/reject vs. one revision per turn.** Today an AI turn lands
-  as a single revision with a single `pendingDiff`. Per-part granularity either
-  needs the diff split by part at review time, or one run per part.
+  drums. With the plan capped at 15 non-drum parts this is safe, and arranging
+  can no longer add parts. `Orchestrate as…` run from this stage's rack is not
+  held to one part and still can.
+- **Instrument ranges.** *Checked:* they were enforced nowhere, and the
+  `Orchestrate as…` prompt named a `check_playability` tool that did not exist.
+  It does now, as a read tool over a practical-range table
+  (`src/lib/score/ranges.ts`). It reports and never refuses; a range is a
+  convention.
+- **Per-part accept/reject vs. one revision per turn.** *Resolved* with one run
+  per part, not by splitting a diff. A run writes parts in plan order, one loop
+  each, into one accepted commit, and each loop may touch only its own part, so
+  **Clear** on a part is a clean per-part reject and **Rewrite** a clean redo. A
+  rewrite clears the part server-side first and keeps the clear only if
+  something replaced it.
 
-## Open questions
+## Decisions
 
-- Does `Add section` belong here or in Plan? It changes form, which the Plan
-  stage owns — but wanting a bridge usually only becomes obvious once you can
-  hear the thing. Leaning: keep it here, and have it write back into the stored
-  plan so the two do not drift.
-- Should the melody part be locked against edits at this stage, so arranging
-  cannot quietly rewrite the tune that was already approved?
+- **`Add section` stays here.** Accepting its staged result through this
+  stage's `accept` action runs `syncPlanSections`, which gives the plan a card
+  for any section it does not know about, so the two do not drift.
+- **The melody is locked, server-side.** `melodyLock` refuses any op that
+  removes or changes a note of the approved melody. It applies to arrangement
+  runs (through `onlyPart`) and to every control run while the score is at
+  this stage, the free code tier included. New notes in the melody part are
+  allowed, so a new section can have a tune. Bench remains the place to edit
+  the melody itself.
+- **A staged control result blocks other writes** on this page and the
+  melody page. Rejecting restores the revision before the staged one, so
+  anything committed on top of it would be lost.

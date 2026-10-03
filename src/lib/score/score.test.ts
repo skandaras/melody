@@ -656,3 +656,23 @@ describe('op hardening', () => {
 		expect(after.log).toEqual([]);
 	});
 });
+
+describe('hasNotes', () => {
+	it('is false for an empty score and for one holding only rests', async () => {
+		const { hasNotes } = await import('./query.js');
+		const empty = applyOps(emptyScore(), [
+			{ op: 'add_part', args: { name: 'Piano', instrument: 'Acoustic Grand Piano' } }
+		]).score;
+		expect(hasNotes(empty)).toBe(false);
+
+		const rests = applyOps(empty, [
+			{ op: 'insert_notes', args: { partId: 'p1', notes: [{ tick: 0, dur: 480, pitches: [] }] } }
+		]).score;
+		expect(hasNotes(rests)).toBe(false);
+
+		const music = applyOps(empty, [
+			{ op: 'insert_notes', args: { partId: 'p1', notes: [{ tick: 0, dur: 480, pitches: ['C4'] }] } }
+		]).score;
+		expect(hasNotes(music)).toBe(true);
+	});
+});

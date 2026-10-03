@@ -8,13 +8,13 @@
 	let error = $state('');
 
 	/**
-	 * Two ways in while the pipeline is being built.
+	 * One way in.
 	 *
-	 * The described path is where melody is going, but it only reaches the
-	 * editor until the plan stage lands — so the blank score stays offered
-	 * rather than everyone being routed through a half-built flow.
+	 * A new piece starts at the brief. There used to be a second button for a
+	 * blank score in the free-form editor, kept while the stages were being
+	 * built; every stage has a page now, and a brief can be as little as a hum.
 	 */
-	async function create(to: 'brief' | 'editor') {
+	async function create() {
 		creating = true;
 		error = '';
 		try {
@@ -25,7 +25,7 @@
 			});
 			if (!res.ok) throw new Error(await res.text());
 			const { id } = await res.json();
-			await goto(to === 'brief' ? `/score/${id}/brief` : `/score/${id}`);
+			await goto(`/score/${id}/brief`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			creating = false;
@@ -52,8 +52,7 @@
 <header class="head">
 	<h1>Scores</h1>
 	<div class="actions">
-		<button class="btn" onclick={() => create('editor')} disabled={creating}> Blank score </button>
-		<button class="btn primary" onclick={() => create('brief')} disabled={creating}>
+		<button class="btn primary" onclick={create} disabled={creating}>
 			{creating ? 'Creating…' : 'Describe a piece'}
 		</button>
 	</div>

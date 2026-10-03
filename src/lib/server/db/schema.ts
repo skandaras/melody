@@ -97,7 +97,14 @@ export {
 	type TaskOptions
 } from '$lib/ai/config';
 import type { TaskOptions } from '$lib/ai/config';
-import { FIRST_STAGE, type Brief, type PipelineState, type Plan, type Stage } from '$lib/pipeline/types';
+import {
+	FIRST_STAGE,
+	type Brief,
+	type PipelineState,
+	type Plan,
+	type Stage,
+	type StoredAnalysis
+} from '$lib/pipeline/types';
 
 export const taskConfigs = sqliteTable('task_configs', {
 	task: text('task').primaryKey(),
@@ -143,6 +150,11 @@ export const scores = sqliteTable(
 		brief: text('brief', { mode: 'json' }).$type<Brief>(),
 		/** The approved blueprint. Null until the plan stage produces one. */
 		plan: text('plan', { mode: 'json' }).$type<Plan>(),
+		/**
+		 * The last paid explanation of the piece. Not part of the pipeline
+		 * state, and not snapshotted with revisions — see StoredAnalysis.
+		 */
+		analysis: text('analysis', { mode: 'json' }).$type<StoredAnalysis>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
@@ -229,7 +241,18 @@ export const controls = sqliteTable(
 		/** Seeded built-ins are protected from deletion; user rows are not. */
 		builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
 		enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-		sortOrder: integer('sort_order').notNull().default(0)
+		sortOrder: integer('sort_order').notNull().default(0),
+		/**
+		 * The pipeline stages this control is offered at.
+		 *
+		 * Data rather than a client-side category map, for the same reason
+		 * prompt controls are rows: a new one should need no deploy. Null and
+		 * empty both mean everywhere, but they are not the same fact — null is
+		 * "never assigned", which the seed backfills from the built-in list,
+		 * while `[]` is an admin having chosen everywhere on purpose, which the
+		 * backfill must leave alone.
+		 */
+		stages: text('stages', { mode: 'json' }).$type<Stage[]>()
 	},
 	(t) => [index('controls_category_sort_idx').on(t.category, t.sortOrder)]
 );

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Atmosphere from '$lib/components/Atmosphere.svelte';
+	import { FOG_BY_STAGE, FOG_ELSEWHERE, isStage } from '$lib/pipeline/types';
 	import { themeCss } from '$lib/theme';
 	import type { Snippet } from 'svelte';
 	import type { LayoutServerData } from './$types';
@@ -9,7 +10,6 @@
 
 	const links = $derived([
 		{ href: '/', label: 'Scores' },
-		{ href: '/library', label: 'Library' },
 		{ href: '/settings', label: 'Settings' },
 		...(data.user?.isAdmin ? [{ href: '/admin', label: 'Admin' }] : [])
 	]);
@@ -26,6 +26,21 @@
 	 * canvas — so a page says for itself, and anything that does not say
 	 * inherits the editor's behaviour.
 	 */
+	/**
+	 * The fog for the stage on screen.
+	 *
+	 * A stage page is named by its own route — /score/[id]/refine is the
+	 * refinement, whatever stage the score itself has reached — so it needs no
+	 * help from the page. Bench is not a stage, so it says which stage its score
+	 * is at, and shows that fog.
+	 */
+	const fog = $derived.by(() => {
+		const segment = page.route.id?.split('/').at(-1);
+		if (isStage(segment)) return FOG_BY_STAGE[segment];
+		const stage = (page.data as { stage?: unknown }).stage;
+		return isStage(stage) ? FOG_BY_STAGE[stage] : FOG_ELSEWHERE;
+	});
+
 	const isEditor = $derived(
 		(page.data as { flush?: boolean }).flush ?? page.url.pathname.startsWith('/score/')
 	);
@@ -39,7 +54,7 @@
 </svelte:head>
 
 {#if data.theme.atmosphere}
-	<Atmosphere />
+	<Atmosphere {fog} />
 {/if}
 
 <div class="shell">

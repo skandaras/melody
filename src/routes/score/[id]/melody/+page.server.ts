@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/api';
-import { loadScore } from '$lib/server/scores';
+import { loadScore, stagedRevision } from '$lib/server/scores';
+import { listControls } from '$lib/server/controls/registry';
 import { hasProvider } from '$lib/server/ai/provider';
 import { melodyPartOf } from '$lib/pipeline/realize';
 import {
@@ -33,6 +34,9 @@ export const load: PageServerLoad = ({ locals, params }) => {
 		pipeline: row.pipeline,
 		melodyPartId: melodyPartOf(row.doc, row.pipeline.plan, row.pipeline.brief),
 		canGenerate: hasProvider(),
+		controls: listControls('melody'),
+		// A control's staged result survives a reload, so the review has to too.
+		pending: stagedRevision(row.id, user.id),
 		audio,
 		soundfontUrl: audio.soundfontUrl
 	};

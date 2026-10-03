@@ -1,4 +1,7 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
+import type { OpGuard } from '$lib/pipeline/guards.js';
+import { collectIds } from '$lib/score/ids.js';
+import { playabilityReport } from '$lib/score/ranges.js';
 import type { Score, Selection } from '$lib/score/types.js';
 import { analysisReport, renderNotes } from './context.js';
 import { INSTRUMENT_NAMES, READ_TOOL_NAMES, agentTools, type FunctionDef } from './tools.js';
@@ -52,6 +55,22 @@ export interface LoopOptions {
 	 * belongs to, and the progress bar is back to being a spinner.
 	 */
 	phase?: { id: string; label: string };
+	/**
+	 * What an operation is allowed to touch, decided on its result.
+	 *
+	 * Checked after the trial application, so the guard sees exactly what the op
+	 * would do. A refusal is answered like any other rejected op — the model is
+	 * told why and can try again — and the op never reaches the revision. The
+	 * loop has no opinion about what is allowed; a stage that has one says so
+	 * here. See `$lib/pipeline/guards.ts`.
+	 */
+	guard?: OpGuard;
+	/**
+	 * Ids already used by the commit this loop's ops will join, though `score`
+	 * no longer holds them — notes an earlier step of the same run deleted.
+	 * See `applyOps`. Pass the previous loop's `idsSeen` when chaining loops.
+	 */
+	reservedIds?: Iterable<string>;
 }
 
 export type LoopEvent =
@@ -93,6 +112,12 @@ export interface LoopResult {
 	 * appearing to do nothing at all.
 	 */
 	rejectedOps: number;
+	/**
+	 * Every id the run has seen, including ones it minted and then deleted.
+	 * A caller chaining several loops into one commit passes this on as the
+	 * next loop's `reservedIds`.
+	 */
+	idsSeen: string[];
 }
 
 export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
@@ -116,6 +141,10 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 	// own edits rather than a stale document — and validating one op against
 	// it is both cheaper and more precise than re-applying the whole batch.
 	let working = opts.score;
+	// Each op is validated on its own, but committed as one batch. The batch
+	// never reuses an id it has seen, so neither may the loop — otherwise an op
+	// aimed at a note this turn created would hit here and miss at commit.
+	const seen = new Set<string>([...collectIds(opts.score), ...(opts.reservedIds ?? [])]);
 
 	for (let i = 0; i < opts.maxIterations; i++) {
 		if (opts.signal?.aborted) return result('aborted');
@@ -179,9 +208,12 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		});
 
 		for (const call of completion.toolCalls) {
-			const outcome = handleCall(call, working, ops, opts.maxOps);
+			const outcome = handleCall(call, working, ops, opts.maxOps, seen, opts.guard);
 			if (!outcome.ok) rejectedOps++;
-			if (outcome.score) working = outcome.score;
+			if (outcome.score) {
+				working = outcome.score;
+				for (const id of collectIds(working)) seen.add(id);
+			}
 			if (outcome.hitLimit) hitOpLimit = true;
 			if (outcome.warning) warnings.push(outcome.warning);
 			opts.onEvent?.({
@@ -220,7 +252,16 @@ export async function runAgentLoop(opts: LoopOptions): Promise<LoopResult> {
 		if (stopReason === 'max_iterations' && opts.maxIterations > 1) {
 			warnings.push(`Stopped after ${opts.maxIterations} model round-trips.`);
 		}
-		return { ops, summary, iterations, usage, stopReason, warnings, rejectedOps };
+		return {
+			ops,
+			summary,
+			iterations,
+			usage,
+			stopReason,
+			warnings,
+			rejectedOps,
+			idsSeen: [...seen]
+		};
 	}
 }
 
@@ -242,7 +283,14 @@ interface CallOutcome {
  * the useful response to "you sent malformed JSON" is to let it try again, not
  * to abandon a turn the user is waiting on.
  */
-function handleCall(call: ToolCall, score: Score, ops: Op[], maxOps: number): CallOutcome {
+function handleCall(
+	call: ToolCall,
+	score: Score,
+	ops: Op[],
+	maxOps: number,
+	seen: ReadonlySet<string>,
+	guard?: OpGuard
+): CallOutcome {
 	let args: Record<string, unknown>;
 	try {
 		args = call.arguments.trim() ? JSON.parse(call.arguments) : {};
@@ -274,7 +322,7 @@ function handleCall(call: ToolCall, score: Score, ops: Op[], maxOps: number): Ca
 	// while the model can still correct itself — is much better than at commit
 	// time with the user looking at the diff.
 	const op = { op: call.name, args } as Op;
-	const trial = applyOps(score, [op]);
+	const trial = applyOps(score, [op], { reservedIds: seen });
 
 	if (trial.errors.length) {
 		const reason = trial.errors.map((e) => e.reason).join('; ');
@@ -307,6 +355,18 @@ function handleCall(call: ToolCall, score: Score, ops: Op[], maxOps: number): Ca
 		return { ok: false, content: `Error: ${detail}`, detail, warning: detail };
 	}
 
+	// After the "matched nothing" test, so an op that did nothing is reported
+	// as that rather than as a breach of a rule it never got near.
+	const refusal = guard?.(score, trial.score, trial.diff);
+	if (refusal) {
+		return {
+			ok: false,
+			content: `Error: ${refusal}`,
+			detail: refusal,
+			warning: `${call.name} was refused: ${refusal}`
+		};
+	}
+
 	ops.push(op);
 	const note = trial.log.join('; ');
 	return { ok: true, content: note, detail: note, score: trial.score };
@@ -321,6 +381,8 @@ function readTool(name: string, args: Record<string, unknown>, score: Score): Ca
 			return { ok: true, content: analysisReport(score, sel) };
 		case 'list_instruments':
 			return { ok: true, content: INSTRUMENT_NAMES.join('\n') };
+		case 'check_playability':
+			return { ok: true, content: playabilityReport(score, sel.partIds) };
 		default:
 			return { ok: false, content: `Error: unknown tool "${name}".` };
 	}

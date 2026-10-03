@@ -6,6 +6,7 @@ import { buildEditContext } from './context.js';
 import { createJob, emit, finishJob, recordUsage, timedOut } from './jobs.js';
 import { runAgentLoop } from './loop.js';
 import { resolveTask } from './provider.js';
+import { guardForStage } from '$lib/pipeline/guards.js';
 import type { Selection } from '$lib/score/types.js';
 
 /**
@@ -75,6 +76,9 @@ export function startEdit(opts: RunEditOptions): { jobId: string } {
 				reasoning: resolved.options.reasoning,
 				signal: abort,
 				phase: { id: 'edit', label: 'Editing' },
+				// A typed request is held to the same rule as the stage's own
+				// controls, or the feedback box would be a way round the lock.
+				guard: guardForStage(row.doc, row.pipeline) ?? undefined,
 				onEvent: (event) => emit(jobId, event.type, event)
 			});
 

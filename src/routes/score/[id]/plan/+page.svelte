@@ -86,9 +86,7 @@
 
 			if (action === 'approve') {
 				// Straight to the bare score route, and the stage table there decides
-				// where that lands. Melody has no page yet, so today it falls through
-				// to the editor with the blueprint visible as real sections — and when
-				// Melody lands, this line needs no change.
+				// where that lands — the melody page, today.
 				await goto(`/score/${data.score.id}`);
 				return;
 			}
@@ -267,7 +265,7 @@
 			{#if plan.ensemble.some((p) => p.partId)}
 				<p class="hint">
 					A tagged row is a part that already exists — the recording you made. Removing the row
-					leaves the part in the score; delete it in the editor if you want it gone.
+					leaves the part in the score; remove it in Bench, under Parts, if you want it gone.
 				</p>
 			{/if}
 		</section>

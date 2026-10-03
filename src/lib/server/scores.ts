@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { error } from '@sveltejs/kit';
 import { applyOps, type Op } from '$lib/score/apply';
@@ -9,8 +9,10 @@ import {
 	pipelineOf,
 	type Brief,
 	type PipelineState,
+	type AnalysisView,
 	type Plan,
-	type Stage
+	type Stage,
+	type StoredAnalysis
 } from '$lib/pipeline/types';
 import { mergeParts } from '$lib/score/merge';
 import { emptyScore, type Score } from '$lib/score/types';
@@ -38,6 +40,8 @@ export interface ScoreRow {
 	/** Where this score is in the pipeline. Always present, even for rows that
 	 *  predate it — see pipelineOf. */
 	pipeline: PipelineState;
+	/** The last paid explanation, if one was asked for. */
+	analysis: StoredAnalysis | null;
 }
 
 /**
@@ -92,6 +96,48 @@ export function setPipeline(
 	return currentPipeline(scoreId) ?? pipelineOf({});
 }
 
+/**
+ * The music in a document, as a short hash.
+ *
+ * The title is left out: naming a piece on the finish page commits a
+ * revision, and that must not make an explanation of the music out of date.
+ */
+export function musicFingerprint(doc: Score): string {
+	return createHash('sha1')
+		.update(JSON.stringify({ ...doc, title: '' }))
+		.digest('hex');
+}
+
+/**
+ * Keep an explanation of a piece.
+ *
+ * `about` is the document the model was shown, not the score as it is when
+ * the answer arrives: an edit made while it was being written must leave it
+ * marked out of date, not quietly vouched for.
+ */
+export function setAnalysis(
+	scoreId: string,
+	userId: string,
+	text: string,
+	about: Score
+): StoredAnalysis {
+	loadScore(scoreId, userId);
+	const analysis: StoredAnalysis = { text, fingerprint: musicFingerprint(about), createdAt: Date.now() };
+	db.update(scores).set({ analysis }).where(eq(scores.id, scoreId)).run();
+	return analysis;
+}
+
+/** A stored explanation as a page shows it, with whether it is out of date. */
+export function analysisOf(row: ScoreRow): AnalysisView | null {
+	const stored = row.analysis;
+	if (!stored?.text) return null;
+	return {
+		text: stored.text,
+		createdAt: stored.createdAt,
+		stale: stored.fingerprint !== musicFingerprint(row.doc)
+	};
+}
+
 export function listScores(userId: string, includeArchived = false) {
 	const where = includeArchived
 		? eq(scores.ownerId, userId)
@@ -123,6 +169,7 @@ export function createScore(userId: string, title = 'Untitled', doc?: Score): Sc
 		stage: FIRST_STAGE,
 		brief: null,
 		plan: null,
+		analysis: null,
 		createdAt: now,
 		updatedAt: now,
 		archivedAt: null
@@ -460,6 +507,51 @@ export function rejectRevision(scoreId: string, userId: string, revisionId: stri
 export function acceptRevision(scoreId: string, userId: string, revisionId: string): void {
 	loadScore(scoreId, userId);
 	db.update(revisions).set({ accepted: true }).where(eq(revisions.id, revisionId)).run();
+}
+
+/**
+ * The staged change waiting on review right now, if there is one.
+ *
+ * The newest revision, and only if it is unaccepted. `accepted = false` alone
+ * cannot answer this: rejecting a revision marks it unaccepted too, and an old
+ * staged turn that later writes landed on top of is no longer a change anyone
+ * can review in isolation. A reject always writes its own accepted revision
+ * after the target, so "newest and unaccepted" is exactly "staged, unresolved".
+ */
+export function stagedRevision(scoreId: string, userId: string) {
+	loadScore(scoreId, userId);
+	const latest = db
+		.select({
+			id: revisions.id,
+			label: revisions.label,
+			diff: revisions.diff,
+			accepted: revisions.accepted
+		})
+		.from(revisions)
+		.where(eq(revisions.scoreId, scoreId))
+		.orderBy(desc(revisions.seq))
+		.limit(1)
+		.get();
+	if (!latest || latest.accepted) return null;
+	return {
+		revisionId: latest.id,
+		label: latest.label,
+		added: latest.diff?.added.length ?? 0,
+		changed: latest.diff?.changed.length ?? 0,
+		removed: latest.diff?.removed.length ?? 0
+	};
+}
+
+/**
+ * Refuse to start a write while a staged change waits on review.
+ *
+ * Rejecting restores the revision before the staged one, so anything committed
+ * on top of it in the meantime would be thrown away with it.
+ */
+export function assertNothingStaged(scoreId: string, userId: string): void {
+	if (stagedRevision(scoreId, userId)) {
+		error(409, 'Accept or reject the change waiting for review first.');
+	}
 }
 
 /** Staged-but-unreviewed AI revisions, newest first. */

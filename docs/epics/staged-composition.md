@@ -1,6 +1,6 @@
 # Epic: the staged composition flow
 
-**Status:** proposed · **Branch:** `claude/music-composition-refactor-qa8anq`
+**Status:** built — all six stages, Bench, and the foundations. The old three-column editor has been removed; `/score/[id]` now only decides which stage a score opens at.
 
 melody becomes a stepped process instead of an open-ended platform. You describe
 a song, approve a plan, hear a melody, arrange it, refine its tone, and finish

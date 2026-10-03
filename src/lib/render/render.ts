@@ -39,6 +39,12 @@ export interface RenderOptions extends Partial<LayoutOptions> {
 	selected?: Set<string>;
 	/** Pending AI changes, drawn green/amber. */
 	diff?: DiffHighlight;
+	/**
+	 * Parts drawn dimmed: settled, and not what this view is working on — the
+	 * approved melody, at the arrangement stage. Selection and the diff still
+	 * win over it, so a note being acted on never fades.
+	 */
+	quietParts?: Set<string>;
 	/** Resolved theme colours — passed in rather than read from CSS so the
 	 *  same code can render to an offscreen SVG for PDF export. */
 	colors: {
@@ -164,6 +170,7 @@ function buildNote(score: Score, part: Part, event: ScoreEvent, opts: RenderOpti
 	if (opts.selected?.has(note.id)) colour = c.accent;
 	else if (opts.diff?.added.has(note.id)) colour = c.diffAdd;
 	else if (opts.diff?.changed.has(note.id)) colour = c.diffChange;
+	else if (opts.quietParts?.has(part.id)) colour = c.dim;
 
 	staveNote.setStyle({ fillStyle: colour ?? c.notation, strokeStyle: colour ?? c.notation });
 	// Ledger lines are the one part of a note VexFlow will not take from

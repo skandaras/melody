@@ -40,9 +40,26 @@ function clone<T>(v: T): T {
  * half of accept/reject, and cloning once per batch is far cheaper than the
  * bugs from aliasing a live document into an undo stack.
  */
-export function applyOps(score: Score, ops: Op[]): ApplyResult {
+export function applyOps(
+	score: Score,
+	ops: Op[],
+	opts: {
+		/**
+		 * Ids to treat as taken although the score no longer holds them.
+		 *
+		 * Ids are minted past the highest one in sight, so a batch that deletes
+		 * the newest note and then inserts mints the next number, while the same
+		 * insert applied on its own afterwards would mint the deleted one again.
+		 * Anything that applies a commit's ops in pieces — the agent loop, one op
+		 * at a time — passes the ids the whole commit has seen, so every piece
+		 * mints exactly what the single batch at commit time will.
+		 */
+		reservedIds?: Iterable<string>;
+	} = {}
+): ApplyResult {
 	const next = clone(score);
 	const ids = new IdFactory(collectIds(next));
+	for (const id of opts.reservedIds ?? []) ids.observe(id);
 	const diff: OpResult = { added: [], removed: [], changed: [] };
 	const log: string[] = [];
 	const errors: { op: string; reason: string }[] = [];

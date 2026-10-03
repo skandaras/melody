@@ -24,7 +24,11 @@
 		player: PlayerStore;
 		busy: boolean;
 		oncommit: (ops: Op[], label: string) => Promise<void>;
-		onremove: (partId: string) => void;
+		/**
+		 * Omitted where removing a part is not this view's decision — at the
+		 * arrangement stage the ensemble belongs to the plan.
+		 */
+		onremove?: (partId: string) => void;
 	}
 	let { score, player, busy, oncommit, onremove }: Props = $props();
 
@@ -102,13 +106,15 @@
 						title="Solo — affects listening only, never the export"
 						aria-pressed={soloed}>S</button
 					>
-					<button
-						class="tag danger"
-						onclick={() => onremove(part.id)}
-						disabled={busy}
-						title="Remove this part and its notes"
-						aria-label="Remove {part.name}">×</button
-					>
+					{#if onremove}
+						<button
+							class="tag danger"
+							onclick={() => onremove(part.id)}
+							disabled={busy}
+							title="Remove this part and its notes"
+							aria-label="Remove {part.name}">×</button
+						>
+					{/if}
 				</div>
 				<div class="row">
 					<input

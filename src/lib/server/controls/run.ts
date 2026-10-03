@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
-import type { Op } from '$lib/score/apply.js';
+import { guardForStage } from '$lib/pipeline/guards.js';
+import { applyOps, type Op } from '$lib/score/apply.js';
 import type { Selection } from '$lib/score/types.js';
 import { checkBudget } from '../budget.js';
 import { buildEditContext } from '../ai/context.js';
@@ -60,6 +61,7 @@ export function runControl(opts: RunControlOptions): ControlResult {
 	// the instance is configured.
 	const row = loadScore(opts.scoreId, opts.userId);
 	const params = { ...(control.defaultParams ?? {}), ...opts.params };
+	const guard = guardForStage(row.doc, row.pipeline);
 
 	if (control.kind === 'code') {
 		if (!control.opName) error(500, `Control "${control.name}" has no operation to run`);
@@ -67,6 +69,15 @@ export function runControl(opts: RunControlOptions): ControlResult {
 		// Selection is merged in rather than taken from params: it comes from
 		// what the user has highlighted, not from the control's own form.
 		const op = { op: control.opName, args: { ...params, selection: opts.selection } } as Op;
+
+		// The same rule the model is held to, so the free tier is not a way
+		// round it: a Transpose fired at the whole score while arranging would
+		// otherwise move the approved tune along with everything else.
+		if (guard) {
+			const trial = applyOps(row.doc, [op]);
+			const refusal = trial.errors.length ? null : guard(row.doc, trial.score, trial.diff);
+			if (refusal) error(400, refusal);
+		}
 		const commit = commitOps(opts.scoreId, opts.userId, [op], {
 			source: 'control',
 			label: control.name,
@@ -138,6 +149,7 @@ export function runControl(opts: RunControlOptions): ControlResult {
 				tools: control.kind === 'agent' ? agentTools() : opTools(),
 				signal: abort,
 				phase: { id: 'control', label: control.name },
+				guard: guard ?? undefined,
 				onEvent: (event) => emit(jobId, event.type, event)
 			});
 

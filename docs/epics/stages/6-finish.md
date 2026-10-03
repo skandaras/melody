@@ -50,11 +50,17 @@ change the document.
   to retention. A finished piece the person expects to keep is not the same as a
   cached export; do not conflate them.
 
-## Open questions
+## Decisions
 
-- Does finishing mean anything in the data model — a `completed` flag, a
-  read-only state — or is Finish just the last stage you can leave and re-enter
-  freely? Leaning: no flag. Music is never finished, and a lock would be
-  friction with no payoff.
-- Should the analysis text be stored with the score, so it is there next time
-  without paying for it again?
+- **No completed flag.** Music is never finished, and a lock would be friction
+  with no payoff. Finish can be left and re-entered freely.
+- **The explanation is stored**, in `scores.analysis`, so coming back shows it
+  at no cost. It is commentary on a version rather than part of one, so it is
+  not snapshotted with revisions. It carries a fingerprint of the music it was
+  shown, minus the title, which decides when to mark it out of date: a later
+  edit or a restore makes it stale, renaming the piece does not, and an edit
+  made while it was being written is not vouched for.
+- **Titles are suggestions** until saved. Saving is a `set_title` commit, and
+  the plan's title follows it.
+- **`title` and `analyse` both have callers now** (`src/lib/server/ai/finish.ts`),
+  so neither is left behind as latent intent.

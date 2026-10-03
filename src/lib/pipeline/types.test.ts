@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	emptyBrief,
+	entryRoute,
 	FIRST_STAGE,
 	isBriefUsable,
 	isStage,
@@ -89,6 +90,34 @@ describe('isBriefUsable', () => {
 	});
 });
 
+describe('entryRoute', () => {
+	const at = (stage: (typeof STAGES)[number], brief: { description: string } | null = null) => ({
+		stage,
+		brief,
+		plan: null
+	});
+
+	it('opens a new, empty score at the brief', () => {
+		expect(entryRoute(at('brief'), false)).toBe('brief');
+	});
+
+	it('opens a score from before the pipeline where music is worked on', () => {
+		// At the brief by default, never given one, and full of music.
+		expect(entryRoute(at('brief'), true)).toBe('refine');
+	});
+
+	it('keeps a brief in progress at the brief, hummed seed and all', () => {
+		expect(entryRoute(at('brief', { description: '' }), true)).toBe('brief');
+	});
+
+	it('sends every later stage to its own page, whatever is in it', () => {
+		for (const stage of STAGES.filter((s) => s !== 'brief')) {
+			expect(entryRoute(at(stage), false)).toBe(stage);
+			expect(entryRoute(at(stage), true)).toBe(stage);
+		}
+	});
+});
+
 describe('stageRoute', () => {
 	it('never routes the brief, which is every legacy score', () => {
 		// The single most important line in the routing rule. `brief` is the
@@ -108,11 +137,22 @@ describe('stageRoute', () => {
 		expect(stageRoute('melody')).toBe('melody');
 	});
 
-	it('falls through for stages that have no page yet', () => {
-		// Arrangement, refine and finish all land in the editor until each one is
-		// built. Falling through is correct; a dead link is not.
-		for (const stage of ['arrangement', 'refine', 'finish'] as const) {
-			expect(stageRoute(stage)).toBeNull();
+	it('routes the arrangement to its own page', () => {
+		expect(stageRoute('arrangement')).toBe('arrangement');
+	});
+
+	it('routes refinement to its own page', () => {
+		expect(stageRoute('refine')).toBe('refine');
+	});
+
+	it('routes the finish to its own page', () => {
+		expect(stageRoute('finish')).toBe('finish');
+	});
+
+	it('gives every stage but the brief a page', () => {
+		for (const stage of STAGES) {
+			if (stage === 'brief') expect(stageRoute(stage)).toBeNull();
+			else expect(stageRoute(stage)).toBe(stage);
 		}
 	});
 });

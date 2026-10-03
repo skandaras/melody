@@ -25,6 +25,12 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		label?: string;
 		atTick?: number;
 		adoptGlobals?: boolean;
+		/**
+		 * False for a fragment that is already clean notation — a saved clip
+		 * going back in. The cleanup pass is for pitch detection's guesses, and
+		 * running it over a clip would stage an edit nobody asked for.
+		 */
+		cleanup?: boolean;
 	}>(request);
 
 	if (!body.fragment || typeof body.fragment !== 'object') {
@@ -41,7 +47,7 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 	// transcription is already saved and staged, so a pass with no model
 	// configured — or no budget left — changes nothing the user sees.
 	const { autoCleanup } = getSetting<TranscribeSettings>('transcribe', DEFAULT_TRANSCRIBE);
-	if (autoCleanup && result.diff.added.length > 0) {
+	if (autoCleanup && body.cleanup !== false && result.diff.added.length > 0) {
 		try {
 			startEdit({
 				scoreId: params.id,
