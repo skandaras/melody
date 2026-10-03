@@ -60,6 +60,8 @@
 		return [...map.entries()];
 	});
 
+	const scopeCount = $derived(selection.noteIds?.length ?? 0);
+
 	const valuesFor = (c: ControlSummary) => params[c.id] ?? c.defaultParams ?? {};
 	const hasParams = (c: ControlSummary) =>
 		Boolean(c.paramsSchema?.properties && Object.keys(c.paramsSchema.properties).length);
@@ -121,6 +123,16 @@
 	as a change you review.
 </p>
 
+<!-- Stated, not defaulted: an empty selection means the whole piece, and
+     "Darken" on the whole piece is a different request from "Darken" on four
+     bars. Saying which before the button is pressed is the only fair way. -->
+<p class="scope">
+	Applies to
+	<strong>
+		{scopeCount ? `${scopeCount} selected note${scopeCount === 1 ? '' : 's'}` : 'the whole piece'}
+	</strong>
+</p>
+
 {#if error}
 	<p class="msg err">{error}</p>
 {/if}
@@ -171,6 +183,15 @@
 {/each}
 
 <style>
+	.scope {
+		font-size: var(--text-xs);
+		color: var(--fg-dim);
+		margin: 0 0 var(--space-2);
+	}
+	.scope strong {
+		color: var(--fg);
+		font-weight: 600;
+	}
 	.hint {
 		color: var(--fg-dim);
 		font-size: var(--text-xs);

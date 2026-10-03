@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import ClipPanel from '$lib/components/ClipPanel.svelte';
 	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -8,6 +9,7 @@
 	import { secondsToTick } from '$lib/score/measures';
 	import type { Op } from '$lib/score/apply';
 	import type { Position } from '$lib/render/locate';
+	import type { Score } from '$lib/score/types';
 	import type { PageServerData } from './$types';
 
 	/**
@@ -23,7 +25,7 @@
 	 * through the same single write path and lands in the same revision history.
 	 * It deliberately never touches `session.pending`: that slot belongs to
 	 * staged AI changes, and a manual edit competing for it would leave one of
-	 * the two unreviewable.
+	 * the two unreviewable. Clips live here too — inserting one is manual.
 	 */
 
 	let { data }: { data: PageServerData } = $props();
@@ -49,6 +51,7 @@
 	});
 
 	let scale = $state(1);
+	let showClips = $state(false);
 	let mode = $state<'select' | 'add'>('select');
 	let entry = $state<NoteEntry>({
 		duration: 480,
@@ -90,6 +93,37 @@
 	async function dragNotes(ops: Op[]) {
 		if (!ops.length || session.busy) return;
 		await session.runOps(ops, ops.length > 1 ? 'Moved notes' : 'Moved a note');
+	}
+
+	/**
+	 * Put a saved clip back in, as new parts.
+	 *
+	 * A clip carries rests and ties, which insert_notes cannot express, so it
+	 * goes through the merge path — which stages. It is accepted straight away:
+	 * inserting a clip is a deliberate manual edit like any other here, and
+	 * leaving it staged would put a change in the review slot that no page is
+	 * showing, blocking every stage behind it.
+	 */
+	async function insertClip(fragment: Score, label: string) {
+		const post = async (url: string, body: unknown) => {
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			if (!res.ok) throw new Error((await res.text()) || res.statusText);
+			return res.json();
+		};
+		const merged = await post(`/api/scores/${data.score.id}/transcribe`, {
+			fragment,
+			label: `Inserted ${label}`,
+			cleanup: false
+		});
+		await post(`/api/scores/${data.score.id}/revisions`, {
+			action: 'accept',
+			revisionId: merged.revisionId
+		});
+		session.adopt(merged.doc as Score, null);
 	}
 
 	async function deleteSelected() {
@@ -162,6 +196,8 @@
 
 		<div class="spacer"></div>
 
+		<button class="btn" class:on={showClips} onclick={() => (showClips = !showClips)}>Clips</button>
+
 		<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out">
 			−
 		</button>
@@ -175,6 +211,7 @@
 		<p class="banner">{error}</p>
 	{/if}
 
+	<div class="body">
 	<div class="scroll">
 		<ScoreCanvas
 			{score}
@@ -188,6 +225,20 @@
 			onplace={placeNote}
 			ondrag={dragNotes}
 		/>
+	</div>
+
+	{#if showClips}
+		<aside class="clips">
+			<ClipPanel
+				scoreId={data.score.id}
+				{score}
+				selection={session.selection}
+				selectionCount={session.selectionCount}
+				{busy}
+				oninsert={insertClip}
+			/>
+		</aside>
+	{/if}
 	</div>
 
 	<Transport
@@ -257,9 +308,27 @@
 		font-size: var(--text-sm);
 	}
 
+	.body {
+		flex: 1;
+		display: flex;
+		min-height: 0;
+	}
 	.scroll {
 		flex: 1;
 		overflow: auto;
 		padding: var(--space-4);
+		min-width: 0;
+	}
+	.clips {
+		width: 16rem;
+		flex: 0 0 16rem;
+		overflow-y: auto;
+		padding: var(--space-4);
+		border-left: 1px solid var(--border);
+		background: var(--bg-pane);
+	}
+	.btn.on {
+		background: var(--accent);
+		color: var(--bg);
 	}
 </style>
