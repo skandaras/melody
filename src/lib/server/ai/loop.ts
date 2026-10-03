@@ -1,5 +1,5 @@
 import { applyOps, type Op } from '$lib/score/apply.js';
-import type { OpGuard } from '$lib/pipeline/arrange.js';
+import type { OpGuard } from '$lib/pipeline/guards.js';
 import { collectIds } from '$lib/score/ids.js';
 import { playabilityReport } from '$lib/score/ranges.js';
 import type { Score, Selection } from '$lib/score/types.js';
@@ -62,7 +62,7 @@ export interface LoopOptions {
 	 * would do. A refusal is answered like any other rejected op — the model is
 	 * told why and can try again — and the op never reaches the revision. The
 	 * loop has no opinion about what is allowed; a stage that has one says so
-	 * here. See `$lib/pipeline/arrange.ts`.
+	 * here. See `$lib/pipeline/guards.ts`.
 	 */
 	guard?: OpGuard;
 	/**

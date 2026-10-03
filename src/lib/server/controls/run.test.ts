@@ -136,6 +136,20 @@ describe('the melody lock while arranging', () => {
 		});
 	});
 
+	it('lifts the melody lock once the score moves on to refinement', () => {
+		const { scoreId } = arranging();
+		setPipeline(scoreId, user, { stage: 'refine' });
+		const result = runControl({
+			controlId: transpose().id,
+			scoreId,
+			userId: user,
+			params: { semitones: 2 },
+			selection: {}
+		});
+		// Refinement locks the form, not the tune: transposing is expression.
+		expect(result.kind).toBe('applied');
+	});
+
 	it('allows one aimed at the accompaniment', () => {
 		const { scoreId, strings } = arranging();
 		commitOps(

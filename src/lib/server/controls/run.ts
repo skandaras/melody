@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { melodyLock, type OpGuard } from '$lib/pipeline/arrange.js';
-import { melodyPartOf } from '$lib/pipeline/realize.js';
+import { guardForStage } from '$lib/pipeline/guards.js';
 import { applyOps, type Op } from '$lib/score/apply.js';
 import type { Selection } from '$lib/score/types.js';
 import { checkBudget } from '../budget.js';
@@ -62,7 +61,7 @@ export function runControl(opts: RunControlOptions): ControlResult {
 	// the instance is configured.
 	const row = loadScore(opts.scoreId, opts.userId);
 	const params = { ...(control.defaultParams ?? {}), ...opts.params };
-	const guard = stageGuard(row);
+	const guard = guardForStage(row.doc, row.pipeline);
 
 	if (control.kind === 'code') {
 		if (!control.opName) error(500, `Control "${control.name}" has no operation to run`);
@@ -226,18 +225,6 @@ export function runControl(opts: RunControlOptions): ControlResult {
 	})();
 
 	return { kind: 'job', jobId };
-}
-
-/**
- * What a control may touch, given where the score is in the pipeline.
- *
- * At the arrangement stage the melody approved before it is locked: arranging
- * around a tune must not quietly rewrite it. Everywhere else, nothing extra.
- */
-function stageGuard(row: ReturnType<typeof loadScore>): OpGuard | null {
-	const { stage, plan, brief } = row.pipeline;
-	if (stage !== 'arrangement' || !plan) return null;
-	return melodyLock(row.doc, melodyPartOf(row.doc, plan, brief));
 }
 
 /**

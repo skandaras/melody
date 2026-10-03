@@ -4,9 +4,9 @@ import {
 	accompanimentParts,
 	clearPartOps,
 	countNotes,
-	onlyPart,
 	type PartStatus
 } from '$lib/pipeline/arrange.js';
+import { onlyPart } from '$lib/pipeline/guards.js';
 import { melodyPartOf } from '$lib/pipeline/realize.js';
 import type { Plan } from '$lib/pipeline/types.js';
 import type { Score } from '$lib/score/types.js';

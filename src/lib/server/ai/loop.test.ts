@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { OpGuard } from '$lib/pipeline/arrange.js';
+import type { OpGuard } from '$lib/pipeline/guards.js';
 import { runAgentLoop, type LoopEvent } from './loop.js';
 import { MockAdapter, type ScriptedTurn } from './mock.js';
 import { applyOps } from '$lib/score/apply.js';
