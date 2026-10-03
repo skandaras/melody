@@ -3,6 +3,7 @@
 	import type { PlayerStore } from '$lib/audio/player.svelte';
 	import { downloadBlob, safeFilename } from '$lib/export/download';
 	import { scoreToMidiBlob } from '$lib/export/midi';
+	import { tempoAt } from '$lib/score/measures';
 	import type { Score } from '$lib/score/types';
 
 	interface Props {
@@ -16,6 +17,34 @@
 
 	const t = $derived(player.transport);
 	const max = $derived(Math.max(t.duration, 0.001));
+
+	/**
+	 * Tell the atmosphere layer that something is sounding, and how fast.
+	 *
+	 * Here because every page that plays music has a transport, and the fog
+	 * lives in the root layout with no view of any page's player — so it is
+	 * published on the document element instead. The breathing itself is a CSS
+	 * animation the compositor owns; this only starts and stops it.
+	 *
+	 * Derived from a boolean and a number rather than read off `player.transport`
+	 * inside the effect: the store replaces that object every animation frame,
+	 * and an effect depending on it would rewrite these attributes sixty times a
+	 * second. The opening tempo, not the one under the playhead, for the same
+	 * reason.
+	 */
+	const playing = $derived(t.playing);
+	const openingBpm = $derived(tempoAt(score, 0).bpm);
+
+	$effect(() => {
+		const root = document.documentElement;
+		if (!playing) {
+			delete root.dataset.playing;
+			return;
+		}
+		root.style.setProperty('--bpm', String(openingBpm));
+		root.dataset.playing = '';
+		return () => delete root.dataset.playing;
+	});
 
 	let rendering = $state(false);
 	let exportError = $state('');

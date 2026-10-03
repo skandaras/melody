@@ -43,6 +43,23 @@ export const STAGE_LABELS: Record<Stage, string> = {
  */
 export const RACK_STAGES: readonly Stage[] = ['melody', 'arrangement', 'refine'];
 
+/**
+ * How thick the fog is at each stage: dense while the piece is an idea, gone by
+ * the time it is finished. See docs/epics/visual-language.md — the fog clearing
+ * as the composition clears is how a page says where it is in the flow.
+ */
+export const FOG_BY_STAGE: Record<Stage, number> = {
+	brief: 1,
+	plan: 0.85,
+	melody: 0.65,
+	arrangement: 0.45,
+	refine: 0.2,
+	finish: 0
+};
+
+/** Pages outside the pipeline — the score list, settings, admin. */
+export const FOG_ELSEWHERE = 0.7;
+
 /** What a hummed or uploaded seed is *for*. */
 export const SEED_ROLES = ['theme', 'hook', 'motif'] as const;
 export type SeedRole = (typeof SEED_ROLES)[number];
@@ -267,6 +284,25 @@ const STAGE_ROUTES: Partial<Record<Stage, string>> = {
 /** The path segment for a stage's own page, or null if it has none yet. */
 export function stageRoute(stage: Stage): string | null {
 	return STAGE_ROUTES[stage] ?? null;
+}
+
+/**
+ * Where opening a score lands.
+ *
+ * Every stage with a page goes to it. The brief, which deliberately has no
+ * entry in the table above, needs one more question answered: has anyone ever
+ * taken this score anywhere? A score written before the pipeline existed sits
+ * at the brief by default, with no brief and with music in it — sending that
+ * to a form asking what it should be would strand it, so it opens where music
+ * is worked on. Anything else at the brief stage is a brief in progress.
+ *
+ * `hasNotes` rather than the whole document, so this stays a question about
+ * the pipeline and testable without one.
+ */
+export function entryRoute(pipeline: PipelineState, hasNotes: boolean): string {
+	const own = stageRoute(pipeline.stage);
+	if (own) return own;
+	return pipeline.brief === null && hasNotes ? 'refine' : 'brief';
 }
 
 /** The stage after this one, or null at the end of the pipeline. */

@@ -18,27 +18,41 @@ Pitch detection runs in the browser (a Web Worker running Spotify's
 basic-pitch), then tempo estimation, quantisation and bar-splitting turn the
 detected notes into a draft score. No key required — this whole path is free.
 
-**Edit it.** Notation is engraved with VexFlow and directly editable. In
-Select mode: click a note, shift-click to add, or rubber-band a region; arrow
-keys transpose (shift for octaves), delete removes. In Add mode: pick a
-duration and click the stave to place a note, with a ghost notehead showing
-exactly where it will land. Every mutation in the app — yours, a control's,
-the model's — goes through one registry of 27 operations, so undo, revisions
-and AI edits all work the same way.
+**Make it in stages.** A piece is made in six steps, each with one job and
+the few controls that matter for it:
 
-**Ask for changes.** Describe what you want: *make this darker*, *add a
-walking bass*, *orchestrate for string quartet*. The model works through the
-same 27 operations, and its edits arrive as a **diff you accept or reject**
-rather than as a silent overwrite.
+| Stage | What happens |
+|---|---|
+| Brief | Describe it, hum it, or both |
+| Plan | Key, tempo, ensemble and form, approved before a note is written |
+| Melody | The tune, written section by section; rewrite any section, or say what is wrong with it |
+| Arrangement | The other parts, one at a time, around a melody that is now locked |
+| Refinement | Dynamics, colour, tension, feel — with the form locked |
+| Finish | Name it, read what it does, export it |
 
-**Turn the knobs.** A rack of 29 controls sits beside the score. They come in
-three tiers, which matters more than it sounds:
+Every stage can be revisited. Model edits arrive as a **diff you accept or
+reject** rather than as a silent overwrite, and the locks are enforced on the
+server: an arrangement cannot rewrite the approved melody, and refinement
+cannot add parts or change the form.
+
+**Edit it by hand.** Bench is the manual surface. Notation is engraved with
+VexFlow and directly editable: click a note, shift-click to add, rubber-band
+a region, drag notes in pitch and time, arrow keys to transpose (shift for
+octaves), delete to remove. In Add mode, pick a duration and click the stave,
+with a ghost notehead showing exactly where it will land. Parts and saved
+clips live here too. Every mutation in the app — yours, a control's, the
+model's — goes through one registry of 27 operations, so undo, revisions and
+AI edits all work the same way.
+
+**Turn the knobs.** 28 controls, each offered at the stages where it means
+something (an admin can change which). They come in three tiers, which
+matters more than it sounds:
 
 | Tier | What it is | Cost |
 |---|---|---|
 | `code` (11) | Pure functions — transpose, quantise, swing, humanise | Free, instant, no model |
 | `prompt` (13) | One model round-trip with a scoped instruction | One call |
-| `agent` (5) | A bounded tool-calling loop that can read the score back | Several calls |
+| `agent` (4) | A bounded tool-calling loop that can read the score back | Several calls |
 
 *Darken*, *Increase energy* and *Add genre influence* are the interesting
 ones; *Transpose* and *Quantise* never touch the network. A fresh install
@@ -46,7 +60,7 @@ with no API key is a working, if quieter, program.
 
 **Get music out.** PDF (vector, drawn from the same SVG you're looking at),
 MusicXML (opens in MuseScore, Sibelius, Dorico), MIDI, and rendered WAV. Save
-selections to a clip library organised in folders.
+selections to a clip library organised in folders, from Bench.
 
 **Make it yours.** Presets plus thirteen colours and four scale axes, with
 notation size deliberately independent of interface size. Themes are
@@ -312,11 +326,11 @@ src/routes/          pages and API
 docs/epics/          design documents for work in progress
 ```
 
-**In progress:** [the staged composition flow](docs/epics/staged-composition.md)
-— melody is being reshaped from an open-ended editor into six stages (Brief,
-Plan, Melody, Arrangement, Refinement, Finish) with a manual-only editor beside
-them. The epic carries the stage briefs, the visual direction and a verified
-triage of what is currently broken.
+**Design history:** [the staged composition flow](docs/epics/staged-composition.md)
+— how melody went from an open-ended editor to six stages (Brief, Plan,
+Melody, Arrangement, Refinement, Finish) with a manual-only editor beside
+them. The epic carries the stage briefs, the visual direction and the triage
+of what was broken when it started.
 
 Two conventions carry most of the weight:
 

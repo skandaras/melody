@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import ClipPanel from '$lib/components/ClipPanel.svelte';
+	import Mixer from '$lib/components/Mixer.svelte';
 	import NotePalette, { type NoteEntry } from '$lib/components/NotePalette.svelte';
 	import ScoreCanvas from '$lib/components/ScoreCanvas.svelte';
 	import Transport from '$lib/components/Transport.svelte';
@@ -51,7 +52,9 @@
 	});
 
 	let scale = $state(1);
-	let showClips = $state(false);
+	/** One side panel at a time: the narrow canvas is the thing being edited. */
+	let panel = $state<'parts' | 'clips' | null>(null);
+	const toggle = (p: 'parts' | 'clips') => (panel = panel === p ? null : p);
 	let mode = $state<'select' | 'add'>('select');
 	let entry = $state<NoteEntry>({
 		duration: 480,
@@ -126,6 +129,19 @@
 		session.adopt(merged.doc as Score, null);
 	}
 
+	/**
+	 * Remove a part and everything in it.
+	 *
+	 * Here because it is a manual edit, and the only place left to make it: the
+	 * stages never delete a part on their own, so that a dropped plan row cannot
+	 * take a hummed recording with it.
+	 */
+	async function removePart(partId: string) {
+		const part = score.parts.find((p) => p.id === partId);
+		if (!part || !confirm(`Remove "${part.name}" and its notes?`)) return;
+		await session.runOps([{ op: 'remove_part', args: { partId } }], `Removed ${part.name}`);
+	}
+
 	async function deleteSelected() {
 		if (!selected.size) return;
 		await session.runOps(
@@ -196,7 +212,8 @@
 
 		<div class="spacer"></div>
 
-		<button class="btn" class:on={showClips} onclick={() => (showClips = !showClips)}>Clips</button>
+		<button class="btn" class:on={panel === 'parts'} onclick={() => toggle('parts')}>Parts</button>
+		<button class="btn" class:on={panel === 'clips'} onclick={() => toggle('clips')}>Clips</button>
 
 		<button class="btn" onclick={() => (scale = Math.max(0.5, scale - 0.1))} aria-label="Zoom out">
 			−
@@ -227,8 +244,18 @@
 		/>
 	</div>
 
-	{#if showClips}
-		<aside class="clips">
+	{#if panel === 'parts'}
+		<aside class="side">
+			<Mixer
+				{score}
+				{player}
+				{busy}
+				oncommit={(ops, label) => session.runOps(ops, label)}
+				onremove={removePart}
+			/>
+		</aside>
+	{:else if panel === 'clips'}
+		<aside class="side">
 			<ClipPanel
 				scoreId={data.score.id}
 				{score}
@@ -319,7 +346,7 @@
 		padding: var(--space-4);
 		min-width: 0;
 	}
-	.clips {
+	.side {
 		width: 16rem;
 		flex: 0 0 16rem;
 		overflow-y: auto;

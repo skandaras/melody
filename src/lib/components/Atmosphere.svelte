@@ -30,6 +30,12 @@
 	 *    everything and never rises above the chrome.
 	 */
 
+	interface Props {
+		/** 1 is the brief's fog, 0 is none. See FOG_BY_STAGE. */
+		fog?: number;
+	}
+	let { fog = 0.7 }: Props = $props();
+
 	/**
 	 * One static tile of fractal noise.
 	 *
@@ -42,9 +48,13 @@
 </script>
 
 <div class="atmosphere" aria-hidden="true">
-	<div class="blob a"></div>
-	<div class="blob b"></div>
-	<div class="blob c"></div>
+	<!-- The stage sets the thickness here, on one element, so a stage change
+	     fades it without fighting the blobs' own keyframes. -->
+	<div class="mist" style:opacity={fog}>
+		<div class="blob a"></div>
+		<div class="blob b"></div>
+		<div class="blob c"></div>
+	</div>
 	<div class="grain" style:background-image={GRAIN}></div>
 </div>
 
@@ -58,10 +68,13 @@
 		/* Nothing inside can affect layout or paint outside this box, so the
 		   browser never has to consider it while laying out the interface. */
 		contain: strict;
-		/* Driven by the current stage once the stages exist: 1 while a piece is
-		   still an idea, 0 by the time it is finished. Until then it holds at a
-		   middle value rather than pretending to a signal that is not there. */
-		--fog: 0.7;
+	}
+
+	/* One opacity change per stage transition; the browser does the rest. */
+	.mist {
+		position: absolute;
+		inset: 0;
+		transition: opacity 1.2s ease;
 	}
 
 	.blob {
@@ -71,7 +84,6 @@
 		width: 120vmax;
 		height: 120vmax;
 		border-radius: 50%;
-		opacity: var(--fog);
 		/* One compositor layer each, and only these three. */
 		will-change: transform;
 	}
@@ -160,11 +172,11 @@
 	@keyframes breathe {
 		from {
 			transform: scale(1);
-			opacity: calc(var(--fog) * 0.8);
+			opacity: 0.8;
 		}
 		to {
 			transform: scale(1.06);
-			opacity: var(--fog);
+			opacity: 1;
 		}
 	}
 
@@ -177,6 +189,9 @@
 		.blob,
 		:global(html[data-playing]) .blob {
 			animation: none;
+		}
+		.mist {
+			transition: none;
 		}
 	}
 </style>

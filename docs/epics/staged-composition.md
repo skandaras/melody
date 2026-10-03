@@ -1,6 +1,6 @@
 # Epic: the staged composition flow
 
-**Status:** in progress — foundations, Bench, Brief, Plan, Melody and Arrangement built; Refinement and Finish next
+**Status:** built — all six stages, Bench, and the foundations. The old three-column editor has been removed; `/score/[id]` now only decides which stage a score opens at.
 
 melody becomes a stepped process instead of an open-ended platform. You describe
 a song, approve a plan, hear a melody, arrange it, refine its tone, and finish

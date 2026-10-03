@@ -70,11 +70,22 @@ Expressive edits. Approving moves to Finish.
   without a deploy. Anything this page hardcodes about which controls exist
   breaks that.
 
-## Open questions
+## Decisions
 
-- Is there a meaningful difference between Refinement and Arrangement for a
-  solo-piano piece, where there is nothing to arrange? Possibly the two collapse
-  when the ensemble is one part — worth deciding rather than shipping an empty
-  stage.
-- Should re-entry from Finish land here or offer a choice of stage? Landing here
-  is simpler; a choice is more honest about what the person might want to change.
+- **The form is locked, on the server.** `formLock` (`src/lib/pipeline/guards.ts`)
+  refuses adding, removing or reordering parts and any change to sections,
+  metre or key. Notes, dynamics, articulation, velocity and tempo stay open —
+  a ritardando is expression. It applies to everything run against a score at
+  this stage — controls, the free-text box, and the free code tier — because
+  `guardForStage` reads the score's stage rather than the endpoint.
+- **Selection scope is stated.** The control rack says "Applies to N selected
+  notes" or "Applies to the whole piece" before anything is pressed.
+- **No plan required.** Refining is expression on whatever notes are there,
+  which makes this where a score written before the pipeline opens.
+- **Clips moved to Bench, not here.** Inserting a clip adds parts, which the
+  form lock refuses, and inserting a saved fragment is a manual edit anyway.
+- **A solo piece** needs nothing special: Arrangement says there is nothing to
+  arrange and lets you continue at once, so the two stages do not need to
+  collapse into one.
+- **Re-entry from Finish lands here**, through "Go back and change something".
+  Every earlier stage is a link away from its neighbour.
